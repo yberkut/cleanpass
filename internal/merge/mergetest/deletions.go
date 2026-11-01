@@ -9,9 +9,9 @@ import (
 	"github.com/yberkut/cleanpass/internal/snapshot"
 )
 
-// The moves of deletions. All copies of a scenario share one recycle bin UUID, also when each
-// of them makes the group by itself. Two different bins need the rule of one bin in the result,
-// so a move that makes them comes with that rule.
+// The moves of deletions. Copies that make their recycle bin by themselves share one UUID here,
+// and only an imported database brings a bin with another one. Two copies that each make a bin
+// of their own need the rule of one bin in the result, so a move that makes them comes with it.
 func init() {
 	register("delete entry", deleteEntry)
 	register("delete entry in two copies", deleteEntryInTwoCopies)
@@ -29,18 +29,19 @@ func (w *world) binID() snapshot.UUID {
 	return w.bin
 }
 
-// makeBin adds the recycle bin to a copy unless it has one, as a first deletion does.
-func (w *world) makeBin(s *snapshot.Snapshot, stamp time.Time) {
-	id := w.binID()
-	if s.Meta.RecycleBin == id {
-		return
+// makeBin gives the recycle bin of a copy. A copy without one gets it, as with a first deletion.
+func (w *world) makeBin(s *snapshot.Snapshot, stamp time.Time) snapshot.UUID {
+	if !s.Meta.RecycleBin.IsZero() {
+		return s.Meta.RecycleBin
 	}
+	id := w.binID()
 	s.Meta.RecycleBinEnabled, s.Meta.RecycleBin, s.Meta.RecycleBinChanged = true, id, stamp
 	s.Root.Groups = append(s.Root.Groups, snapshot.Group{
 		UUID:  id,
 		Name:  "Recycle Bin",
 		Times: snapshot.Times{Creation: stamp, LastModification: stamp, LocationChanged: stamp},
 	})
+	return id
 }
 
 // find gives the group with this UUID. It must exist.
@@ -144,8 +145,7 @@ func deleteEntryInTwoCopies(t *rapid.T, w *world, f *fork) {
 // version only by that time. The spec expects the time to stay, and the desktop program has not
 // been tried, so the move does either.
 func recycleEntry(t *rapid.T, w *world, f *fork) {
-	w.makeBin(f.snapshot, f.clock)
-	bin := f.find(w.binID())
+	bin := f.find(w.makeBin(f.snapshot, f.clock))
 	ref, ok := f.pickEntry(t)
 	if !ok || ref.group == bin {
 		return
@@ -165,7 +165,7 @@ func recycleEntry(t *rapid.T, w *world, f *fork) {
 // recycleGroup moves a group to the bin as keepassxc-cli does: the group gets new times, and its
 // entries go with it without any change of their own.
 func recycleGroup(t *rapid.T, w *world, f *fork) {
-	w.makeBin(f.snapshot, f.clock)
+	binID := w.makeBin(f.snapshot, f.clock)
 	binned := f.binned()
 	ref, ok := f.pickGroup(t, func(id snapshot.UUID) bool { return !binned[id] })
 	if !ok {
@@ -176,7 +176,7 @@ func recycleGroup(t *rapid.T, w *world, f *fork) {
 	moved := ref.remove()
 	moved.PreviousParentGroup = &previous
 	moved.Times.LastModification, moved.Times.LastAccess, moved.Times.LocationChanged = stamp, stamp, stamp
-	bin := f.find(w.binID())
+	bin := f.find(binID)
 	bin.Groups = append(bin.Groups, moved)
 }
 

@@ -39,6 +39,17 @@ func newestRecords(copies []merge.Copy) map[snapshot.UUID]time.Time {
 	return result
 }
 
+// differentBins gives the recycle bins of the copies.
+func differentBins(copies []merge.Copy) map[snapshot.UUID]bool {
+	bins := map[snapshot.UUID]bool{}
+	for _, c := range copies {
+		if !c.Snapshot.Meta.RecycleBin.IsZero() {
+			bins[c.Snapshot.Meta.RecycleBin] = true
+		}
+	}
+	return bins
+}
+
 func inAndOutOfTheBin(holdings []held) bool {
 	in := slices.ContainsFunc(holdings, func(h held) bool { return h.inBin })
 	out := slices.ContainsFunc(holdings, func(h held) bool { return !h.inBin })
@@ -299,6 +310,9 @@ func TestScenariosReachEveryCaseOfADeletion(t *testing.T) {
 		if len(result.Merged.Deletions) > 0 {
 			seen["a record of something gone in all copies"]++
 		}
+		if len(differentBins(s.Copies)) > 1 {
+			seen["two different bins"]++
+		}
 		countBinCases(seen, s.Copies, result.Merged)
 	}
 	t.Logf("cases in 500 scenarios: %v", seen)
@@ -308,6 +322,7 @@ func TestScenariosReachEveryCaseOfADeletion(t *testing.T) {
 		"a deletion of an entry in conflict", "two records with different times", "a record of something gone in all copies",
 		"an entry only in the bin", "an entry in a group in the bin", "a group in the bin of one copy and outside it in another",
 		"an entry that left its group for the bin", "a bin only some copies have", "a record about a group that stays",
+		"two different bins",
 	} {
 		if seen[want] == 0 {
 			t.Errorf("no scenario reaches the case %q", want)
