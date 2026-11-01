@@ -6,3 +6,6 @@
 *.exe
 *.test
 *.out
+
+# Claude Code agent worktrees
+.claude/worktrees/
