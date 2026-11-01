@@ -19,6 +19,7 @@ package merge
 
 import (
 	"errors"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -55,9 +56,16 @@ type Result struct {
 	Questions []Question
 	// Report holds the events for the report, without any secret value, in a fixed order.
 	Report []Event
-	// Absorbed lists the entries that left the tree because a pair merged, sorted. All their
-	// versions are under the entry they went into.
+	// Absorbed lists the entries of the copies that left the tree because a pair merged, now or
+	// in an earlier merge, sorted. All their versions are under the entry they went into.
 	Absorbed []Absorption
+	// MergedGroups maps each group that went into another group, now or in an earlier merge, to
+	// that group. All groups of a family map to the one with the smallest UUID. The root groups
+	// are not here: they are one group by themselves.
+	MergedGroups map[snapshot.UUID]snapshot.UUID
+	// RememberedDeletions lists the entries of the copies that left the tree because the memory
+	// says the human has deleted them, sorted. Decision.DeletesEntry names those of this merge.
+	RememberedDeletions []snapshot.UUID
 }
 
 // Event is one thing the report can tell. Each rule defines its own event types.
@@ -80,14 +88,14 @@ const (
 	// phaseMemory reads the decisions stored in the copies by earlier merges, before
 	// anything is joined.
 	phaseMemory phase = iota
+	// phaseGroups joins the groups, so an entry knows the group it lies in.
+	phaseGroups
 	// phaseVersions joins the versions of each entry and settles the conflicts.
 	phaseVersions
 	// phasePairs handles similar entries. Each entry has its versions by now.
 	phasePairs
 	// phaseDeletions handles deletion records and the recycle bin.
 	phaseDeletions
-	// phaseGroups joins the groups.
-	phaseGroups
 	// phaseMetadata joins the settings of the database.
 	phaseMetadata
 	// phaseRemember stores the decisions of this merge in the result.
@@ -113,8 +121,19 @@ type merger struct {
 	// entries holds every entry by UUID. A rule removes an entry by removing it here.
 	entries map[snapshot.UUID]*entryState
 	groups  map[snapshot.UUID]*groupState
-	// bins says what lies in the recycle bins. It is known from phaseDeletions on.
+	// bins says what lies in the recycle bins. It is known from phaseGroups on.
 	bins recycleBins
+	// records holds what the copies say about deleted objects.
+	records map[snapshot.UUID]record
+	// memory holds the decisions of earlier merges.
+	memory memory
+	// sameEntries and sameGroups tell which entries and which groups are one by now: the
+	// memory, and what this merge adds to it.
+	sameEntries, sameGroups families
+	// remembered holds the keys of the decisions of this merge.
+	remembered map[string]bool
+	// rememberedDeletions holds the entries the memory has removed.
+	rememberedDeletions []snapshot.UUID
 	// out is the merged copy so far. A rule fills the parts it owns.
 	out snapshot.Snapshot
 
@@ -122,7 +141,6 @@ type merger struct {
 	used      map[QuestionID]bool
 	questions []Question
 	report    []Event
-	absorbed  []Absorption
 	failure   error
 }
 
@@ -164,23 +182,7 @@ func newMerger(in Input) *merger {
 			m.root = root
 		}
 	}
-	for i := range in.Copies {
-		c := &in.Copies[i]
-		c.Snapshot.Root.Walk(func(g *snapshot.Group) {
-			for j := range g.Entries {
-				m.hold(c, m.groupID(g.UUID), &g.Entries[j])
-			}
-		})
-	}
 	return m
-}
-
-// groupID gives the UUID a group has in the merged tree. All root groups are one group.
-func (m *merger) groupID(id snapshot.UUID) snapshot.UUID {
-	if m.roots[id] {
-		return m.root
-	}
-	return id
 }
 
 // sortedEntries gives the entries in a fixed order. Rules use it instead of ranging over
@@ -210,12 +212,47 @@ func (m *merger) finish() (*Result, error) {
 	slices.SortFunc(m.questions, func(a, b Question) int { return strings.Compare(string(a.ID), string(b.ID)) })
 	slices.SortStableFunc(m.report, func(a, b Event) int { return strings.Compare(a.sortKey(), b.sortKey()) })
 	merged := m.out
-	return &Result{Merged: &merged, Questions: m.questions, Report: m.report, Absorbed: m.absorbed}, nil
+	slices.SortFunc(m.rememberedDeletions, compareUUIDs)
+	return &Result{
+		Merged:              &merged,
+		Questions:           m.questions,
+		Report:              m.report,
+		Absorbed:            m.absorptions(),
+		MergedGroups:        m.mergedGroups(),
+		RememberedDeletions: m.rememberedDeletions,
+	}, nil
 }
 
-// collectAttachments gives the bytes of every attachment the merged versions refer to.
-// The file marks the bytes as protected if any copy does.
-func (m *merger) collectAttachments() map[snapshot.AttachmentID]snapshot.Attachment {
+// absorptions lists each entry of the copies that lives on under another UUID.
+func (m *merger) absorptions() []Absorption {
+	into := map[snapshot.UUID]snapshot.UUID{}
+	for i := range m.in.Copies {
+		m.in.Copies[i].Snapshot.Root.Walk(func(g *snapshot.Group) {
+			for j := range g.Entries {
+				if id := g.Entries[j].UUID; m.sameEntries.head(id) != id {
+					into[id] = m.sameEntries.head(id)
+				}
+			}
+		})
+	}
+	var result []Absorption
+	for _, id := range slices.SortedFunc(maps.Keys(into), compareUUIDs) {
+		result = append(result, Absorption{Absorbed: id, Into: into[id]})
+	}
+	return result
+}
+
+func (m *merger) mergedGroups() map[snapshot.UUID]snapshot.UUID {
+	result := map[snapshot.UUID]snapshot.UUID{}
+	for member := range m.sameGroups {
+		result[member] = m.sameGroups.head(member)
+	}
+	return result
+}
+
+// knownAttachments gives the bytes of all attachments of all copies. The file marks the bytes
+// as protected if any copy does.
+func (m *merger) knownAttachments() map[snapshot.AttachmentID]snapshot.Attachment {
 	known := map[snapshot.AttachmentID]snapshot.Attachment{}
 	for i := range m.in.Copies {
 		for id, a := range m.in.Copies[i].Snapshot.Attachments {
@@ -223,6 +260,12 @@ func (m *merger) collectAttachments() map[snapshot.AttachmentID]snapshot.Attachm
 			known[id] = a
 		}
 	}
+	return known
+}
+
+// collectAttachments gives the bytes of every attachment the merged versions refer to.
+func (m *merger) collectAttachments() map[snapshot.AttachmentID]snapshot.Attachment {
+	known := m.knownAttachments()
 	result := map[snapshot.AttachmentID]snapshot.Attachment{}
 	for _, e := range m.entries {
 		for _, v := range e.versions {

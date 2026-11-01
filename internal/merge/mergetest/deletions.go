@@ -9,9 +9,8 @@ import (
 	"github.com/yberkut/cleanpass/internal/snapshot"
 )
 
-// The moves of deletions. Copies that make their recycle bin by themselves share one UUID here,
-// and only an imported database brings a bin with another one. Two copies that each make a bin
-// of their own need the rule of one bin in the result, so a move that makes them comes with it.
+// The moves of deletions. Copies that make their recycle bin in these moves share one UUID. An
+// imported database and the move "make a bin of its own" bring a bin with another one.
 func init() {
 	register("delete entry", deleteEntry)
 	register("delete entry in two copies", deleteEntryInTwoCopies)

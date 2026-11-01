@@ -367,7 +367,7 @@ func TestAMergedPairLiesWhereTheNewestMovePutIt(t *testing.T) {
 	workID, homeID := snapshot.UUID{15: 0xA1}, snapshot.UUID{15: 0xA2}
 	inGroup := func(groupID snapshot.UUID, e snapshot.Entry) *snapshot.Snapshot {
 		s := database()
-		s.Root.Groups = []snapshot.Group{{UUID: groupID, Name: "Group", Entries: []snapshot.Entry{e}}}
+		s.Root.Groups = []snapshot.Group{{UUID: groupID, Name: "Group " + groupID.String(), Entries: []snapshot.Entry{e}}}
 		return s
 	}
 

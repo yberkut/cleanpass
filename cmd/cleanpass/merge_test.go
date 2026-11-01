@@ -134,6 +134,42 @@ func keptAllLines(t *testing.T, result testkit.DB, copies ...testkit.DB) {
 	}
 }
 
+// keptAllLinesButTheResavedGroup is keptAllLines for copies that each got testkit.ResavedGroup in
+// a save of their own. Those are two groups on one path, so the result holds one of them, and
+// the lines with the UUID and the times of the other one are gone with it.
+func keptAllLinesButTheResavedGroup(t *testing.T, result testkit.DB, copies ...testkit.DB) {
+	t.Helper()
+	name := "<Name>" + strings.TrimPrefix(testkit.ResavedGroup, "/") + "</Name>"
+	have := map[string]int{}
+	for _, line := range result.ExportLines(t) {
+		have[line]++
+	}
+	if have[name] != 1 {
+		t.Errorf("KeePassXC sees %d groups %s in the result, want 1", have[name], testkit.ResavedGroup)
+	}
+	for _, c := range copies {
+		free := map[string]int{}
+		export := c.CLI(t, "export")
+		at := strings.Index(export, name)
+		if at < 0 {
+			t.Fatalf("no group %s in %s", testkit.ResavedGroup, c.Path)
+		}
+		start, end := strings.LastIndex(export[:at], "<Group>"), at+strings.Index(export[at:], "</Group>")
+		for line := range strings.SplitSeq(export[start:end], "\n") {
+			free[strings.TrimSpace(line)]++
+		}
+		seen := map[string]int{}
+		for _, line := range c.ExportLines(t) {
+			if strings.HasPrefix(line, "<HistoryMax") || line == "<History/>" {
+				continue
+			}
+			if seen[line]++; seen[line] > have[line]+free[line] {
+				t.Errorf("KeePassXC sees %q in %s, but not in the result", line, c.Path)
+			}
+		}
+	}
+}
+
 func TestMergeGivesAFileKeePassXCReadsWithoutLoss(t *testing.T) {
 	dir := t.TempDir()
 	a, b := divergedPair(t, dir)
@@ -670,6 +706,78 @@ func TestMergeNeverPublishesAResultThatLost(t *testing.T) {
 	}
 }
 
+// What the merge lets leave its place without an answer of this run must not stop the Loss Audit:
+// groups on one path, and what the memory of an earlier merge has decided.
+func TestMergePublishesWhatTheEngineMayMove(t *testing.T) {
+	const (
+		// The entry Друге in the fixture, and the entry Пошта.
+		second  = "00000000000000000000000000000101"
+		mail    = "00000000000000000000000000000100"
+		decided = "2026-10-01T10:00:00Z"
+	)
+	memory := func(xml string, keys ...string) string {
+		var items strings.Builder
+		for _, key := range keys {
+			items.WriteString("<Item><Key>" + key + "</Key><Value>" + decided + "</Value></Item>")
+		}
+		return replaced(t, xml, "<Item><Key>meta-custom-key</Key>", items.String()+"<Item><Key>meta-custom-key</Key>")
+	}
+	secondEntry := func(xml string) (start, end int) {
+		at := strings.Index(xml, "<Entry><UUID>AAAAAAAAAAAAAAAAAAABAQ==</UUID>")
+		return at, at + strings.Index(xml[at:], "</Entry>") + len("</Entry>")
+	}
+	withoutSecond := func(xml string) string {
+		start, end := secondEntry(xml)
+		return xml[:start] + xml[end:]
+	}
+
+	for name, tc := range map[string]struct {
+		first, second string
+		inExport      []string
+		notInExport   []string
+	}{
+		"two groups on one path": {
+			first:       replaced(t, mergeableXML(), "<Name>Робота</Name>", "<Name>Спільна</Name>"),
+			second:      replaced(t, mergeableXML(), "<Name>Робота</Name>", "<Name>Спільна</Name>", "<UUID>AAAAAAAAAAAAAAAAAAAAIA==</UUID><Name>", "<UUID>AAAAAAAAAAAAAAAAAAAAIQ==</UUID><Name>"),
+			inExport:    []string{"Спільна", "AAAAAAAAAAAAAAAAAAAAIA=="},
+			notInExport: []string{"<UUID>AAAAAAAAAAAAAAAAAAAAIQ==</UUID>"},
+		},
+		"an entry the human has deleted": {
+			first: replaced(t, memory(withoutSecond(mergeableXML()), "cleanpass/accepted/"+second+"/"+decided),
+				"<DeletedObjects>", "<DeletedObjects><DeletedObject><UUID>AAAAAAAAAAAAAAAAAAABAQ==</UUID><DeletionTime>2026-09-01T10:00:00Z</DeletionTime></DeletedObject>"),
+			second:      mergeableXML(),
+			notInExport: []string{"<UUID>AAAAAAAAAAAAAAAAAAABAQ==</UUID><IconID>"},
+		},
+		"an entry the human has merged into another": {
+			first:       memory(withoutSecond(mergeableXML()), "cleanpass/entries/"+mail+"/"+second),
+			second:      mergeableXML(),
+			inExport:    []string{"SECRET-MARKER-друге"},
+			notInExport: []string{"<UUID>AAAAAAAAAAAAAAAAAAABAQ==</UUID>"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			a := testkit.DB{Path: filepath.Join(dir, "a.kdbx"), Password: testkit.Password}.Import(t, tc.first)
+			b := testkit.DB{Path: filepath.Join(dir, "b.kdbx"), Password: testkit.Password}.Import(t, tc.second)
+			result := testkit.DB{Path: filepath.Join(dir, "new.kdbx"), Password: testkit.Password}
+
+			wantMerged(t, testkit.Run(t, passwordLines(2), "merge", a.Path, b.Path, "--output", result.Path))
+
+			export := strings.Join(result.ExportLines(t), "\n")
+			for _, want := range tc.inExport {
+				if !strings.Contains(export, want) {
+					t.Errorf("KeePassXC does not see %s", want)
+				}
+			}
+			for _, unwanted := range tc.notInExport {
+				if strings.Contains(export, unwanted) {
+					t.Errorf("KeePassXC sees %s", unwanted)
+				}
+			}
+		})
+	}
+}
+
 func TestTheNewestCopyGivesTheKeysTheCipherAndTheKDF(t *testing.T) {
 	const passwordOld, passwordNew = "пароль старої копії", "пароль нової копії"
 	root := t.TempDir()
@@ -699,7 +807,7 @@ func TestTheNewestCopyGivesTheKeysTheCipherAndTheKDF(t *testing.T) {
 				t.Errorf("the output does not say which copy gave the keys:\n%s", got.Stdout)
 			}
 
-			keptAllLines(t, result, old, fresh)
+			keptAllLinesButTheResavedGroup(t, result, old, fresh)
 			block := passports(t, testkit.Run(t, passwordNew+"\n", "compare", result.Path, "--key-file", key).Stdout, result.Path)[result.Path]
 			wantField(t, block, "Формат", "KDBX 4.1")
 			wantField(t, block, "Шифр", "Twofish")

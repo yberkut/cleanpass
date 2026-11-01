@@ -13,19 +13,22 @@ func init() { addRule(phaseMetadata, keepRecycledInTheBin) }
 
 // recycleBins is what the copies say about their recycle bins.
 type recycleBins struct {
-	// inBin holds for each copy the groups that lie in a bin, with the time each one went
-	// there. The time of a bin itself is zero.
+	// inBin holds for each copy the groups of that copy that lie in a bin, with the time each
+	// one went there. The time of a bin itself is zero.
 	inBin map[*Copy]map[snapshot.UUID]time.Time
-	// outside holds the groups that a copy holds outside every bin.
+	// outside holds the groups of the result that a copy holds outside every bin.
 	outside map[snapshot.UUID]bool
 	// result is the bin of the merged copy, and changed its RecycleBinChanged.
 	result  snapshot.UUID
 	changed time.Time
 }
 
-// readBins finds the groups in the bins. A bin is a bin in every copy, also in a copy that
-// holds the same group and has no bin of its own or has switched its bin off, because switching
-// it off does not bring back what was deleted. A root group is never a bin.
+// readBins finds the groups in the bins, and it makes one group of all bins that exist: the
+// result has one bin, under the smallest UUID, whatever the names and the places of the others.
+//
+// A bin is a bin in every copy, also in a copy that holds the same group and has no bin of its
+// own or has switched its bin off, because switching it off does not bring back what was deleted.
+// A root group is never a bin.
 func (m *merger) readBins() recycleBins {
 	declared := map[snapshot.UUID]bool{}
 	for i := range m.in.Copies {
@@ -33,26 +36,38 @@ func (m *merger) readBins() recycleBins {
 			declared[bin] = true
 		}
 	}
+	var one snapshot.UUID
+	for i := range m.in.Copies {
+		m.in.Copies[i].Snapshot.Root.Walk(func(g *snapshot.Group) {
+			if declared[g.UUID] {
+				if one.IsZero() {
+					one = g.UUID
+				}
+				m.sameGroups.join(one, g.UUID)
+			}
+		})
+	}
+	isBin := map[snapshot.UUID]bool{}
+	for bin := range declared {
+		isBin[m.groupID(bin)] = true
+	}
 	bins := recycleBins{inBin: map[*Copy]map[snapshot.UUID]time.Time{}, outside: map[snapshot.UUID]bool{}}
-	existing := map[snapshot.UUID]bool{}
 	for i := range m.in.Copies {
 		c := &m.in.Copies[i]
 		groups := map[snapshot.UUID]time.Time{}
 		bins.inBin[c] = groups
 		var walk func(g *snapshot.Group, inside bool, since time.Time)
 		walk = func(g *snapshot.Group, inside bool, since time.Time) {
+			id := m.groupID(g.UUID)
 			if inside {
 				since = later(since, g.Times.LocationChanged)
-			} else if declared[g.UUID] {
+			} else if isBin[id] {
 				inside = true
 			}
-			if declared[g.UUID] {
-				existing[g.UUID] = true
-			}
 			if inside {
-				groups[m.groupID(g.UUID)] = since
+				groups[g.UUID] = since
 			} else {
-				bins.outside[m.groupID(g.UUID)] = true
+				bins.outside[id] = true
 			}
 			for j := range g.Groups {
 				walk(&g.Groups[j], inside, since)
@@ -60,23 +75,25 @@ func (m *merger) readBins() recycleBins {
 		}
 		walk(&c.Snapshot.Root, false, time.Time{})
 	}
-	bins.chooseResult(m.in.Copies, existing)
+	bins.chooseResult(m, one)
 	return bins
 }
 
-// chooseResult takes the newest bin that exists, and the smallest UUID of two equally new ones.
-// A copy without a bin takes nothing away, because the entries in the bin of another copy must
-// not come back to life.
-func (b *recycleBins) chooseResult(copies []Copy, existing map[snapshot.UUID]bool) {
-	best := slices.MaxFunc(copies, func(x, y Copy) int {
+// chooseResult takes the bin all bins joined in and its newest time. Without a bin in any tree it
+// takes the newest bin a copy names, and the smallest UUID of two equally new ones. A copy
+// without a bin takes nothing away, because the entries in the bin of another copy must not come
+// back to life.
+func (b *recycleBins) chooseResult(m *merger, one snapshot.UUID) {
+	exists := func(meta *snapshot.Meta) bool { return !one.IsZero() && m.groupID(meta.RecycleBin) == m.groupID(one) }
+	best := slices.MaxFunc(m.in.Copies, func(x, y Copy) int {
 		first, second := &x.Snapshot.Meta, &y.Snapshot.Meta
 		return cmp.Or(
-			compareFlags(existing[first.RecycleBin], existing[second.RecycleBin]),
+			compareFlags(exists(first), exists(second)),
 			first.RecycleBinChanged.Compare(second.RecycleBinChanged),
 			compareUUIDs(second.RecycleBin, first.RecycleBin),
 		)
 	}).Snapshot.Meta
-	b.result, b.changed = best.RecycleBin, best.RecycleBinChanged
+	b.result, b.changed = m.groupID(best.RecycleBin), best.RecycleBinChanged
 }
 
 func compareFlags(a, b bool) int {
@@ -91,7 +108,7 @@ func compareFlags(a, b bool) int {
 
 // recycled says the copy holds the entry in a bin, and since when.
 func (b *recycleBins) recycled(h *holding) (time.Time, bool) {
-	since, inBin := b.inBin[h.copy][h.group]
+	since, inBin := b.inBin[h.copy][h.source]
 	return later(since, h.entry.Times.LocationChanged), inBin
 }
 
