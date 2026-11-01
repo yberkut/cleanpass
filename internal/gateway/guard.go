@@ -63,6 +63,7 @@ func guardFields(db *gokeepasslib.Database) ([]snapshot.FieldLoss, error) {
 	if loss, ok := unusedAttachments(db); ok {
 		losses = append(losses, loss)
 	}
+	losses = append(losses, headerLosses(db)...)
 	slices.SortFunc(losses, func(a, b snapshot.FieldLoss) int { return strings.Compare(a.Path, b.Path) })
 	return losses, nil
 }
@@ -71,7 +72,28 @@ func guardFields(db *gokeepasslib.Database) ([]snapshot.FieldLoss, error) {
 const (
 	innerHeaderAttachmentPath = "InnerHeader/Binary"
 	metaAttachmentPath        = "KeePassFile/Meta/Binaries/Binary"
+	headerCommentPath         = "OuterHeader/Comment"
+	headerCustomDataPath      = "OuterHeader/PublicCustomData"
 )
+
+// headerLosses finds what the rebuilt XML cannot show and a Snapshot has no place for: a file
+// is written from a Snapshot with a new header. KeePassXC itself does not fill these places,
+// so they can only hold data another program needs. KDBX 4 keeps its attachments in the inner
+// header, so the same goes for attachments it holds in the XML, which nothing can refer to.
+func headerLosses(db *gokeepasslib.Database) []snapshot.FieldLoss {
+	var losses []snapshot.FieldLoss
+	headers := db.Header.FileHeaders
+	if len(headers.Comment) > 0 {
+		losses = append(losses, snapshot.FieldLoss{Path: headerCommentPath, InFile: 1})
+	}
+	if headers.PublicCustomData != nil && len(headers.PublicCustomData.Items) > 0 {
+		losses = append(losses, snapshot.FieldLoss{Path: headerCustomDataPath, InFile: len(headers.PublicCustomData.Items)})
+	}
+	if db.Header.IsKdbx4() && len(db.Content.Meta.Binaries) > 0 {
+		losses = append(losses, snapshot.FieldLoss{Path: metaAttachmentPath, InFile: len(db.Content.Meta.Binaries)})
+	}
+	return losses
+}
 
 // unusedAttachments finds what the rebuilt XML cannot show: on every save the library
 // drops an attachment that no version of any entry refers to.

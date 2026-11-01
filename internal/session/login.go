@@ -42,43 +42,52 @@ func New(stdin *os.File, prompts io.Writer) *Session {
 }
 
 // Open asks for the keys of a copy until they fit, and gives its Snapshot.
+func (s *Session) Open(c Copy) (*snapshot.Snapshot, error) {
+	snap, _, err := s.OpenWithKeys(c)
+	return snap, err
+}
+
+// OpenWithKeys is Open that also gives the keys that fit, so that a result can have them.
 //
 // The first try asks only for the password. A retry also asks for the key file, so
 // that a database with one needs no restart. An answer counts for that try only: Enter
 // goes back to what the command line said.
-func (s *Session) Open(c Copy) (*snapshot.Snapshot, error) {
+func (s *Session) OpenWithKeys(c Copy) (*snapshot.Snapshot, gateway.Credentials, error) {
 	for retry := false; ; retry = true {
 		passwords, err := s.askPassword(c.Path)
 		if err != nil {
-			return nil, err
+			return nil, gateway.Credentials{}, err
 		}
 		keyFile := c.KeyFile
 		if retry {
 			if keyFile, err = s.askKeyFile(c.Path, c.KeyFile); err != nil {
-				return nil, err
+				return nil, gateway.Credentials{}, err
 			}
 		}
-		snap, err := tryPasswords(c.Path, passwords, keyFile)
+		snap, keys, err := tryPasswords(c.Path, passwords, keyFile)
 		switch {
 		case errors.Is(err, gateway.ErrWrongCredentials):
 			s.say(text.WrongCredentials(c.Path))
 		case errors.Is(err, gateway.ErrKeyFile):
 			s.say(text.KeyFileUnreadable(keyFile))
 		default:
-			return snap, err
+			return snap, keys, err
 		}
 	}
 }
 
 // tryPasswords stops at the first password that fits.
-func tryPasswords(path string, passwords [][]byte, keyFile string) (snap *snapshot.Snapshot, err error) {
+func tryPasswords(path string, passwords [][]byte, keyFile string) (*snapshot.Snapshot, gateway.Credentials, error) {
+	var err error
 	for _, password := range passwords {
-		snap, err = gateway.Open(path, gateway.Credentials{Password: password, KeyFile: keyFile})
+		keys := gateway.Credentials{Password: password, KeyFile: keyFile}
+		var snap *snapshot.Snapshot
+		snap, err = gateway.Open(path, keys)
 		if !errors.Is(err, gateway.ErrWrongCredentials) {
-			return snap, err
+			return snap, keys, err
 		}
 	}
-	return nil, err
+	return nil, gateway.Credentials{}, err
 }
 
 func (s *Session) say(line string) {

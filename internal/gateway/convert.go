@@ -263,7 +263,7 @@ func (c *converter) attachment(ref *gokeepasslib.BinaryReference) (snapshot.Atta
 	if binary == nil {
 		return snapshot.AttachmentRef{}, fmt.Errorf("%w: attachment %d is missing", ErrCorrupt, ref.Value.ID)
 	}
-	content, err := binary.GetContentBytes()
+	content, err := attachmentBytes(c.db, binary)
 	if err != nil {
 		return snapshot.AttachmentRef{}, fmt.Errorf("%w: attachment %d: %w", ErrCorrupt, ref.Value.ID, err)
 	}
@@ -274,6 +274,16 @@ func (c *converter) attachment(ref *gokeepasslib.BinaryReference) (snapshot.Atta
 		(binary.Protected != nil && binary.Protected.Bool)
 	c.attachments[id] = stored
 	return snapshot.AttachmentRef{Name: ref.Name, ID: id}, nil
+}
+
+// attachmentBytes gives the true bytes of an attachment. KDBX 4 stores them as they are.
+// GetContentBytes does not look at the format: it decodes any content that happens to be
+// valid base64, so a text file "abcd" would turn into three other bytes and nothing would say so.
+func attachmentBytes(db *gokeepasslib.Database, binary *gokeepasslib.Binary) ([]byte, error) {
+	if db.Header.IsKdbx4() {
+		return binary.Content, nil
+	}
+	return binary.GetContentBytes()
 }
 
 func autoTypeOf(a *gokeepasslib.AutoTypeData) snapshot.AutoType {
@@ -303,11 +313,13 @@ func timesOf(t *gokeepasslib.TimeData) snapshot.Times {
 	}
 }
 
+// timeOf gives a time in UTC. A file of KDBX 4 cannot hold parts of a second, so a time from
+// KDBX 3 with parts of a second would come back from a save as another time.
 func timeOf(t *w.TimeWrapper) time.Time {
 	if t == nil {
 		return time.Time{}
 	}
-	return t.Time.UTC()
+	return t.Time.UTC().Truncate(time.Second)
 }
 
 func nullableOf(b w.NullableBoolWrapper) *bool {
