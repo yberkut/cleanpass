@@ -59,9 +59,6 @@ func absorbs(larger, smaller *snapshot.EntryVersion) bool {
 
 // holdsMoreCustomData compares what the fingerprint covers of the custom data, as a set.
 func holdsMoreCustomData(larger, smaller *snapshot.EntryVersion) bool {
-	if len(larger.CustomData) == 0 {
-		return false
-	}
 	more, less := customDataSet(larger), customDataSet(smaller)
 	if len(less) >= len(more) {
 		return false

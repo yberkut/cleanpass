@@ -134,6 +134,37 @@ func keptAllLines(t *testing.T, result testkit.DB, copies ...testkit.DB) {
 	}
 }
 
+// KeePassXC leaves the custom data of the entry out of the history version an edit makes. The
+// result keeps the old version with its custom data, asks nothing, and the real KeePassXC sees
+// all of both copies in it.
+func TestMergeTakesAnEditOfAnEntryWithCustomDataAsALag(t *testing.T) {
+	dir := t.TempDir()
+	old := testkit.DB{Path: filepath.Join(dir, "old.kdbx"), Password: testkit.Password}.Import(t, mergeableXML())
+	edited := copyOf(t, old, "edited.kdbx")
+	edited.CLI(t, "edit", "--notes", "нова нотатка", mailEntry)
+	result := testkit.DB{Path: filepath.Join(dir, "new.kdbx"), Password: testkit.Password}
+
+	got := testkit.Run(t, passwordLines(2), "merge", old.Path, edited.Path, "--output", result.Path)
+
+	wantMerged(t, got)
+	if strings.Contains(got.Stdout, "Питань без відповіді") {
+		t.Errorf("the merge has questions:\n%s", got.Stdout)
+	}
+	keptAllLines(t, result, old, edited)
+	data := 0
+	for _, line := range result.ExportLines(t) {
+		if strings.Contains(line, "KPXC_BROWSER_SETTINGS") {
+			data++
+		}
+	}
+	if data != 2 {
+		t.Errorf("KeePassXC sees the custom data %d times in the result, want in the main version and the old version", data)
+	}
+
+	wantCode(t, testkit.Run(t, passwordLines(2), "status", result.Path, edited.Path), 0)
+	wantAhead(t, testkit.Run(t, passwordLines(2), "status", result.Path, old.Path), result.Path, old.Path)
+}
+
 func TestMergeGivesAFileKeePassXCReadsWithoutLoss(t *testing.T) {
 	dir := t.TempDir()
 	a, b := divergedPair(t, dir)

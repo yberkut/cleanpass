@@ -90,20 +90,6 @@ func TestAnEditThatLeftCustomDataOutOfTheHistoryIsReportedAsALag(t *testing.T) {
 	}
 }
 
-func theChange(t *testing.T, result *merge.Result) merge.EntryChange {
-	t.Helper()
-	var changes []merge.EntryChange
-	for _, event := range result.Report {
-		if change, ok := event.(merge.EntryChange); ok {
-			changes = append(changes, change)
-		}
-	}
-	if len(changes) != 1 {
-		t.Fatalf("report = %s, want one change of an entry", printed(result.Report))
-	}
-	return changes[0]
-}
-
 // A criterion of the ticket: custom data where neither holds the other is a true difference.
 func TestTwoMainVersionsWhereNeitherHoldsTheOtherAreATrueConflict(t *testing.T) {
 	for name, pairs := range map[string][2][]string{
@@ -152,7 +138,7 @@ func TestAHistoryVersionWhereNeitherHoldsTheOtherFollowsTheRuleOfTheLongGap(t *t
 	result := mergeOf(t, database(entry(first)), database(entry(newer, other)))
 
 	wantNoQuestions(t, result)
-	if got := theChange(t, result).Outcome; got != merge.OutcomeConflict {
+	if got := theEntryChange(t, result).Outcome; got != merge.OutcomeConflict {
 		t.Errorf("outcome = %d, want a conflict", got)
 	}
 	wantVersions(t, onlyEntry(t, result.Merged), "new", "old", "old")
@@ -220,7 +206,7 @@ func TestTheSmallerOfTwoMainVersionsGoesIntoTheLargerWithAnyKey(t *testing.T) {
 		if len(merged.History) != 0 {
 			t.Errorf("key %d: the result has %d versions in its history, want none", i, len(merged.History))
 		}
-		if got := theChange(t, result); got.Outcome != merge.OutcomeUpdated {
+		if got := theEntryChange(t, result); got.Outcome != merge.OutcomeUpdated {
 			t.Errorf("key %d: outcome = %d, want updated", i, got.Outcome)
 		}
 	}
@@ -293,7 +279,7 @@ func TestAClockAnomalySeesAVersionThroughMissingCustomData(t *testing.T) {
 			merged := onlyEntry(t, result.Merged)
 			wantVersions(t, merged, "replaced", "behind the clock")
 			wantCustomData(t, "the main version", &merged.EntryVersion, "browser", "a")
-			if !theChange(t, result).Replaced {
+			if !theEntryChange(t, result).Replaced {
 				t.Error("the report does not say the version was replaced")
 			}
 		})
@@ -343,7 +329,7 @@ func TestTheSameContentWithAnotherTimeIsNoConflict(t *testing.T) {
 				result := mergeOf(t, order...)
 
 				wantNoQuestions(t, result)
-				if got := theChange(t, result).Outcome; got != merge.OutcomeUpdated {
+				if got := theEntryChange(t, result).Outcome; got != merge.OutcomeUpdated {
 					t.Errorf("outcome = %d, want updated", got)
 				}
 				merged := onlyEntry(t, result.Merged)
@@ -412,5 +398,107 @@ func TestValuesOfCustomDataStayOutOfQuestionsAndReport(t *testing.T) {
 		if strings.Contains(text, firstValue) || strings.Contains(text, secondValue) {
 			t.Errorf("a value of custom data reached the questions or the report:\n%s", text)
 		}
+	}
+}
+
+// Only more items make a larger version. A repeated item is another fingerprint with the same
+// items, so nothing says which one holds more. KeePassXC does not write this, another program may.
+func TestTheSameItemsTwiceAreNoLargerVersion(t *testing.T) {
+	once := withCustomData(version(hours(1), "same"), "browser", "a")
+	twice := withCustomData(version(hours(1), "same"), "browser", "a", "browser", "a")
+
+	result := mergeOf(t, database(entry(once)), database(entry(twice)))
+
+	theConflict(t, result)
+	if got := len(onlyEntry(t, result.Merged).History); got != 1 {
+		t.Errorf("the history has %d versions, want the other one", got)
+	}
+}
+
+// One copy holds the first version alone, and another only the part both versions share. No copy
+// holds the second version without the first, so nothing sets the two against each other.
+func TestACopyWithOneOfTwoVersionsAndACopyWithTheirCommonPartMakeNoConflict(t *testing.T) {
+	first := withCustomData(version(hours(1), "same"), "browser", "a")
+	second := withCustomData(version(hours(1), "same"), "plugin", "b")
+	went := database(entry(version(hours(2), "new"), first, second))
+
+	wantNoQuestions(t, mergeOf(t, went, database(entry(first)), database(entry(version(hours(1), "same")))))
+}
+
+// The copy with less custom data still tells the order: it went from older to its main version,
+// and that main version went into the larger one.
+func TestACopyWhoseMainWentIntoALargerOneStillOrdersItsHistory(t *testing.T) {
+	older := version(hours(0), "older")
+	bare := version(hours(1), "same")
+	larger := withCustomData(version(hours(1), "same"), "browser", "a")
+
+	result := mergeOf(t, database(entry(bare, older)), database(entry(larger)), database(entry(older)))
+
+	wantNoQuestions(t, result)
+	wantVersions(t, onlyEntry(t, result.Merged), "same", "older")
+}
+
+func TestAnAnswerNamesTheCopiesWhoseMainVersionWentIntoIt(t *testing.T) {
+	first := withCustomData(version(hours(1), "same"), "browser", "a")
+	second := withCustomData(version(hours(1), "same"), "plugin", "b")
+
+	_, conflict := theConflict(t, mergeOf(t, database(entry(first)), database(entry(second)), database(entry(version(hours(1), "same")))))
+
+	if len(conflict.Versions) != 2 {
+		t.Fatalf("answers = %s, want two", printed(conflict.Versions))
+	}
+	for _, v := range conflict.Versions {
+		if !slices.Contains(v.Copies, "copy-3") {
+			t.Errorf("the answer names the copies %q, want copy-3 too: its main version is part of each", v.Copies)
+		}
+	}
+}
+
+func TestACopyIsBehindWhenAHistoryHoldsMoreThanItsMainVersion(t *testing.T) {
+	bare := version(hours(1), "old")
+	larger := withCustomData(version(hours(1), "old"), "browser", "a")
+
+	change := theEntryChange(t, mergeOf(t, database(entry(bare)), database(entry(version(hours(2), "new"), larger))))
+
+	for _, state := range change.Copies {
+		if want := state.Name == "copy-1"; state.Behind != want {
+			t.Errorf("copy %s: behind = %v, want %v", state.Name, state.Behind, want)
+		}
+	}
+}
+
+// A question about a deletion tells when the newest content appeared. A main version without the
+// custom data, with the same time, is that same version and no other content.
+func TestADeletionTellsTheLastRealChangeThroughAVersionWithLessCustomData(t *testing.T) {
+	renewed := withCustomData(version(hours(5), "same"), "browser", "a")
+	first := withCustomData(version(hours(1), "same"), "browser", "a")
+	deleted := recorded(database(entry(withCustomData(version(hours(5), "same")))), snapshot.Deletion{UUID: mailID, Time: hours(9)})
+
+	_, d := theDeletion(t, mergeOf(t, database(entry(renewed, first)), deleted))
+
+	if !d.Modified.Equal(hours(1)) {
+		t.Errorf("modified = %s, want the last real change %s", d.Modified, hours(1))
+	}
+}
+
+// Only the holdings outside the bin decide the place, also when the version that had the place
+// has gone into a larger one from the bin. Each other version keeps the place it had.
+func TestAPlaceOutsideTheBinReachesTheVersionThatAbsorbedItsOwner(t *testing.T) {
+	old := version(hours(1), "old")
+	old.Times.LocationChanged = hours(2)
+	bare := version(hours(3), "same")
+	bare.Times.LocationChanged = hours(4)
+	larger := withCustomData(version(hours(3), "same"), "browser", "a")
+	larger.Times.LocationChanged = hours(9)
+
+	merged := onlyEntry(t, mergeOf(t, withBin(binID, entry(larger)), withBin(homeID, entry(bare, old))).Merged)
+
+	wantVersions(t, merged, "same", "old")
+	wantCustomData(t, "the main version", &merged.EntryVersion, "browser", "a")
+	if !merged.Times.LocationChanged.Equal(hours(4)) {
+		t.Errorf("the main version has the place of %s, want the one outside the bin %s", merged.Times.LocationChanged, hours(4))
+	}
+	if !merged.History[0].Times.LocationChanged.Equal(hours(2)) {
+		t.Errorf("the old version has the place of %s, want its own %s", merged.History[0].Times.LocationChanged, hours(2))
 	}
 }
