@@ -404,7 +404,7 @@ func TestHelpIsInUkrainian(t *testing.T) {
 func wantUkrainian(t *testing.T, stdout, stderr string, paths ...string) {
 	t.Helper()
 	allowed := map[string]bool{
-		"cleanpass": true, "compare": true, "file": true, "help": true, "key": true,
+		"cleanpass": true, "compare": true, "status": true, "file": true, "help": true, "key": true,
 		"KDBX": true, "KDF": true, "AES": true, "ChaCha": true, "Twofish": true, "Argon": true,
 		"Enter": true, "stdin": true, "KeePass": true, "KeePassXC": true, "verbose": true, "sync": true,
 	}
