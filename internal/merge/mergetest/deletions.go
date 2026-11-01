@@ -29,8 +29,7 @@ func (w *world) binID() snapshot.UUID {
 	return w.bin
 }
 
-// makeBin adds the recycle bin to a copy unless it has one, as KeePassXC does on the first
-// deletion.
+// makeBin adds the recycle bin to a copy unless it has one, as a first deletion does.
 func (w *world) makeBin(s *snapshot.Snapshot, stamp time.Time) {
 	id := w.binID()
 	if s.Meta.RecycleBin == id {
@@ -69,7 +68,8 @@ func (f *fork) record(id snapshot.UUID, stamp time.Time) {
 	f.snapshot.Deletions = append(f.snapshot.Deletions, snapshot.Deletion{UUID: id, Time: stamp})
 }
 
-// recordAll adds the records KeePassXC adds for a group that goes away, with all it holds.
+// recordAll adds the records for a group that goes away, with all it holds, as keepassxc-cli
+// does.
 func (f *fork) recordAll(g *snapshot.Group, stamp time.Time) {
 	g.Walk(func(child *snapshot.Group) {
 		f.record(child.UUID, stamp)
@@ -139,8 +139,10 @@ func deleteEntryInTwoCopies(t *rapid.T, w *world, f *fork) {
 	}
 }
 
-// recycleEntry does what a plain delete does in KeePassXC: the entry moves to the bin. Only its
-// location changes, not its version.
+// recycleEntry moves an entry to the bin. keepassxc-cli 2.7.12 also gives it a new time of the
+// last change, with the same content and no item in the history, so a copy of the entry gets a
+// version only by that time. The spec expects the time to stay, and the desktop program has not
+// been tried, so the move does either.
 func recycleEntry(t *rapid.T, w *world, f *fork) {
 	w.makeBin(f.snapshot, f.clock)
 	bin := f.find(w.binID())
@@ -150,14 +152,18 @@ func recycleEntry(t *rapid.T, w *world, f *fork) {
 	}
 	moved := *ref.entry()
 	previous := ref.group.UUID
+	stamp := f.tick(t)
 	moved.PreviousParentGroup = &previous
-	moved.Times.LocationChanged = f.tick(t)
+	moved.Times.LocationChanged = stamp
+	if rapid.Bool().Draw(t, "the move renews the time") {
+		moved.Times.LastModification, moved.Times.LastAccess = stamp, stamp
+	}
 	ref.group.Entries = slices.Delete(ref.group.Entries, ref.index, ref.index+1)
 	bin.Entries = append(bin.Entries, moved)
 }
 
-// recycleGroup deletes a group in KeePassXC: the group moves to the bin, and its entries go with
-// it without any change of their own.
+// recycleGroup moves a group to the bin as keepassxc-cli does: the group gets new times, and its
+// entries go with it without any change of their own.
 func recycleGroup(t *rapid.T, w *world, f *fork) {
 	w.makeBin(f.snapshot, f.clock)
 	binned := f.binned()
@@ -166,9 +172,10 @@ func recycleGroup(t *rapid.T, w *world, f *fork) {
 		return
 	}
 	previous := ref.parent.UUID
+	stamp := f.tick(t)
 	moved := ref.remove()
 	moved.PreviousParentGroup = &previous
-	moved.Times.LocationChanged = f.tick(t)
+	moved.Times.LastModification, moved.Times.LastAccess, moved.Times.LocationChanged = stamp, stamp, stamp
 	bin := f.find(w.binID())
 	bin.Groups = append(bin.Groups, moved)
 }
@@ -183,7 +190,7 @@ func deleteGroup(t *rapid.T, _ *world, f *fork) {
 	f.recordAll(&gone, f.tick(t))
 }
 
-// emptyBin removes all the bin holds, as the command of KeePassXC does. The bin itself stays.
+// emptyBin removes all the bin holds. The bin itself stays.
 func emptyBin(t *rapid.T, _ *world, f *fork) {
 	if f.snapshot.Meta.RecycleBin.IsZero() {
 		return

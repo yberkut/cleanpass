@@ -139,6 +139,65 @@ func TestTheAnswerKeepGivesWhatNoAnswerGives(t *testing.T) {
 	}
 }
 
+// The real keepassxc-cli gives an entry a new time when it moves it to the bin, with the same
+// content and no new item in the history. That is no change the human should weigh against the
+// deletion, or both dates of the question would say the same.
+func TestTheDateOfTheLastChangeIsWhenTheNewestContentAppeared(t *testing.T) {
+	moved := func(modified float64, password string) snapshot.EntryVersion {
+		v := version(hours(modified), password)
+		v.Times.LocationChanged = hours(modified)
+		return v
+	}
+	for name, tc := range map[string]struct {
+		inBin, outside snapshot.Entry
+		want           float64
+	}{
+		"only a new time": {
+			entry(moved(50, "same")), entry(version(hours(1), "same")), 1,
+		},
+		"an edit before the move": {
+			entry(moved(50, "edited")), entry(version(hours(2), "edited"), version(hours(1), "old")), 2,
+		},
+		"an old content back on top": {
+			entry(moved(50, "old")), entry(version(hours(2), "edited"), version(hours(1), "old")), 50,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, order := range [][]*snapshot.Snapshot{
+				{withBin(binID, tc.inBin), withBin(homeID, tc.outside)},
+				{withBin(homeID, tc.outside), withBin(binID, tc.inBin)},
+			} {
+				_, d := theDeletion(t, mergeOf(t, order...))
+
+				if !d.Modified.Equal(hours(tc.want)) || !d.Deleted.Equal(hours(50)) {
+					t.Errorf("modified = %s, deleted = %s, want %s and %s", d.Modified, d.Deleted, hours(tc.want), hours(50))
+				}
+			}
+		})
+	}
+}
+
+// Nothing tells which of two contents with the same time is the last one, and the key of the
+// run must not decide what the human sees.
+func TestTheDateOfTheLastChangeWithTwoContentsAtTheSameTime(t *testing.T) {
+	for _, key := range []merge.Key{{1}, {2}, {3}, {4}, {5}, {6}} {
+		in := merge.Input{
+			Copies: named(
+				recorded(database(entry(version(hours(5), "one"), version(hours(1), "one"))), snapshot.Deletion{UUID: mailID, Time: hours(9)}),
+				database(entry(version(hours(5), "two"))),
+			),
+			Now: now,
+			Key: key,
+		}
+
+		for _, q := range mustRun(t, in).Questions {
+			if d, ok := q.Detail.(merge.Deletion); ok && !d.Modified.Equal(hours(5)) {
+				t.Errorf("key %v: modified = %s, want %s", key, d.Modified, hours(5))
+			}
+		}
+	}
+}
+
 // The memory of decisions finds a question by its ID in a later run, with another key, other
 // copies and another time.
 func TestTheQuestionKeepsItsIDInEveryRun(t *testing.T) {
@@ -305,8 +364,7 @@ func withBin(group snapshot.UUID, entries ...snapshot.Entry) *snapshot.Snapshot 
 	}
 }
 
-// movedAt is the one version of the entry, last moved at the given time. A move to the recycle
-// bin changes this time and not the time of the last change.
+// movedAt is the one version of the entry, last moved at the given time.
 func movedAt(located float64) snapshot.Entry {
 	return movedFrom(located, nil)
 }
@@ -460,8 +518,7 @@ func TestARecordAndAMoveToTheBinGiveOneQuestion(t *testing.T) {
 	}
 }
 
-// KeePassXC itself looks at the group of the bin alone. Switching the bin off keeps what
-// was deleted before.
+// Switching the bin off does not bring back what was deleted before.
 func TestABinThatIsSwitchedOffStillCounts(t *testing.T) {
 	off := withBin(binID, movedAt(9))
 	off.Meta.RecycleBinEnabled = false
@@ -493,7 +550,7 @@ func groupOf(s *snapshot.Snapshot, id snapshot.UUID) (group, parent *snapshot.Gr
 	return group, parent
 }
 
-// Deleting a group in KeePassXC moves the group. The entry itself keeps its time and its place.
+// Deleting a group moves the group. The entry itself keeps its time and its place.
 func TestAnEntryInAGroupInTheBinCountsAsInTheBin(t *testing.T) {
 	result := mergeOf(t, withHomeInBin(9, movedAt(3)), withBin(homeID, movedAt(3)))
 

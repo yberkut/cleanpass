@@ -45,7 +45,7 @@ type Deletion struct {
 	Label Label
 	// Deleted is the time of the newest deletion.
 	Deleted time.Time
-	// Modified is the time of the newest version of the entry.
+	// Modified is the time the newest content of the entry appeared.
 	Modified time.Time
 	// Recorded names the copies with a record about the deletion, sorted.
 	Recorded []string
@@ -166,12 +166,13 @@ func (m *merger) settleDeletion(e *entryState, records map[snapshot.UUID]record)
 // deletion makes the data of the question. It comes from the copies alone, so the question
 // stays the same whatever the human answers to another one.
 func (m *merger) deletion(e *entryState, r record) Deletion {
-	newest := e.newestOriginal()
+	keys := e.originalKeys()
+	newest := slices.MaxFunc(keys, compareKeys)
 	d := Deletion{
 		Entry:    e.uuid,
-		Label:    labelOf(&newest.data),
+		Label:    labelOf(&e.find(newest).data),
 		Deleted:  r.time,
-		Modified: newest.key.time(),
+		Modified: lastChange(keys, newest),
 		Recorded: sortedNames(r.copies),
 	}
 	for i := range e.holdings {
@@ -187,15 +188,36 @@ func (m *merger) deletion(e *entryState, r record) Deletion {
 	return d
 }
 
-// newestOriginal gives the newest version the copies hold, which is not always the main
-// version: a decision about a conflict can add a new one.
-func (e *entryState) newestOriginal() *version {
+// originalKeys gives the versions the copies hold, without one a decision about a conflict has
+// added.
+func (e *entryState) originalKeys() []versionKey {
 	var keys []versionKey
 	for i := range e.holdings {
 		keys = append(keys, e.holdings[i].main)
 		keys = slices.AppendSeq(keys, maps.Keys(e.holdings[i].history))
 	}
-	return e.find(slices.MaxFunc(keys, compareKeys))
+	return keys
+}
+
+// lastChange gives the time the newest content appeared: the oldest version with that content
+// after the newest version with another one. keepassxc-cli gives an entry a new time when it
+// moves it to the bin, with the same content, and that is no change the human should weigh
+// against the deletion. Two contents with the same time say nothing about their order, so then
+// that time counts, whichever of them the key of the run puts on top.
+func lastChange(keys []versionKey, newest versionKey) time.Time {
+	var before time.Time
+	for _, k := range keys {
+		if k.content != newest.content {
+			before = later(before, k.time())
+		}
+	}
+	first := newest.time()
+	for _, k := range keys {
+		if k.content == newest.content && k.time().After(before) && k.time().Before(first) {
+			first = k.time()
+		}
+	}
+	return first
 }
 
 func sortedNames(names []string) []string {

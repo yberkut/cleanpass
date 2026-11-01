@@ -24,8 +24,8 @@ type recycleBins struct {
 }
 
 // readBins finds the groups in the bins. A bin is a bin in every copy, also in a copy that
-// holds the same group and has no bin of its own or has switched its bin off. KeePassXC itself
-// looks at the group alone. A root group is never a bin.
+// holds the same group and has no bin of its own or has switched its bin off, because switching
+// it off does not bring back what was deleted. A root group is never a bin.
 func (m *merger) readBins() recycleBins {
 	declared := map[snapshot.UUID]bool{}
 	for i := range m.in.Copies {

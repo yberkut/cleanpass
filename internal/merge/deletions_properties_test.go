@@ -56,6 +56,36 @@ func allowedToGo(decisions []merge.Decision) map[snapshot.UUID]bool {
 	return result
 }
 
+// whenTheNewestContentAppeared walks the versions from the newest down, as long as they have the
+// content of the newest one and no other content has the same time. A new time on the same
+// content is no change. It is written apart from the engine.
+func whenTheNewestContentAppeared(holdings []held) time.Time {
+	contentAt := map[time.Time]map[versionID]bool{}
+	for _, h := range holdings {
+		for _, v := range h.versions {
+			content := *v
+			content.Times.LastModification = time.Time{}
+			at := v.Times.LastModification.UTC()
+			if contentAt[at] == nil {
+				contentAt[at] = map[versionID]bool{}
+			}
+			contentAt[at][identify(&content)] = true
+		}
+	}
+	times := slices.SortedFunc(maps.Keys(contentAt), func(a, b time.Time) int { return b.Compare(a) })
+	first := times[0]
+	if len(contentAt[first]) > 1 {
+		return first
+	}
+	for _, at := range times[1:] {
+		if len(contentAt[at]) > 1 || !maps.Equal(contentAt[at], contentAt[times[0]]) {
+			break
+		}
+		first = at
+	}
+	return first
+}
+
 // TestPropertyQuestionsAboutDeletionsDoNotDisappear: each record against an entry and each
 // entry in the bin of one copy and outside it in another gives a question, whatever the times
 // say, with the right dates. An answer does not take it away. Anything else gives none.
@@ -78,17 +108,13 @@ func TestPropertyQuestionsAboutDeletionsDoNotDisappear(t *testing.T) {
 			if !got {
 				continue
 			}
-			deleted, modified := records[uuid], time.Time{}
+			deleted := records[uuid]
 			for _, h := range holdings {
 				if h.recycled.After(deleted) {
 					deleted = h.recycled
 				}
-				for _, v := range h.versions {
-					if v.Times.LastModification.After(modified) {
-						modified = v.Times.LastModification
-					}
-				}
 			}
+			modified := whenTheNewestContentAppeared(holdings)
 			if !d.Deleted.Equal(deleted) || !d.Modified.Equal(modified) {
 				t.Errorf("entry %s: deleted = %s, modified = %s, want %s and %s", uuid, d.Deleted, d.Modified, deleted, modified)
 			}
