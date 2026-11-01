@@ -103,8 +103,10 @@ func TestPropertyAssociative(t *testing.T) {
 	})
 }
 
-// TestPropertyIdempotent: merging the result with any of its copies, or with itself,
-// changes nothing and asks nothing, with or without decisions.
+// TestPropertyIdempotent: merging the result with any of its copies, or with itself, changes
+// nothing and asks nothing, with or without decisions. One exception waits for the memory of
+// decisions: a copy that still holds what the human decided about a deletion asks again, and
+// the same answer gives the same result.
 func TestPropertyIdempotent(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := mergetest.Scenarios().Draw(t, "scenario")
@@ -114,12 +116,17 @@ func TestPropertyIdempotent(t *testing.T) {
 		own := merge.Copy{Name: "result", Snapshot: result.Merged}
 
 		for _, other := range append(slices.Clone(s.Copies), own) {
-			again := runOn(t, merge.Input{Copies: []merge.Copy{own, other}, Now: s.Now, Key: in.Key})
-
-			wantSameSnapshot(t, again.Merged, result.Merged)
-			if len(again.Questions) != 0 {
-				t.Errorf("the merge with %s asks again: %s", other.Name, printed(again.Questions))
+			pair := merge.Input{Copies: []merge.Copy{own, other}, Now: s.Now, Key: in.Key}
+			for _, q := range runOn(t, pair).Questions {
+				if _, isDeletion := q.Detail.(merge.Deletion); !isDeletion || other.Name == own.Name {
+					t.Errorf("the merge with %s asks again: %s", other.Name, printed(q))
+				}
+				if i := slices.IndexFunc(in.Decisions, func(d merge.Decision) bool { return d.Question == q.ID }); i >= 0 {
+					pair.Decisions = append(pair.Decisions, in.Decisions[i])
+				}
 			}
+
+			wantSameSnapshot(t, runOn(t, pair).Merged, result.Merged)
 		}
 	})
 }
@@ -164,15 +171,50 @@ type held struct {
 	mainID   versionID
 	history  map[versionID]bool
 	versions []*snapshot.EntryVersion
+	group    snapshot.UUID
+	inBin    bool
+	// recycled is the time the entry or a group around it went to the bin.
+	recycled time.Time
+}
+
+// groupsInBin gives the groups in the recycle bin of a copy, the bin included, with the time
+// each one went there.
+func groupsInBin(s *snapshot.Snapshot) map[snapshot.UUID]time.Time {
+	result := map[snapshot.UUID]time.Time{}
+	var mark func(g *snapshot.Group, since time.Time)
+	mark = func(g *snapshot.Group, since time.Time) {
+		result[g.UUID] = since
+		for i := range g.Groups {
+			child := &g.Groups[i]
+			if child.Times.LocationChanged.After(since) {
+				mark(child, child.Times.LocationChanged)
+			} else {
+				mark(child, since)
+			}
+		}
+	}
+	s.Root.Walk(func(g *snapshot.Group) {
+		if g.UUID == s.Meta.RecycleBin {
+			mark(g, time.Time{})
+		}
+	})
+	return result
 }
 
 func heldEntries(copies []merge.Copy) map[snapshot.UUID][]held {
 	result := map[snapshot.UUID][]held{}
 	for _, c := range copies {
+		binned := groupsInBin(c.Snapshot)
 		c.Snapshot.Root.Walk(func(g *snapshot.Group) {
 			for i := range g.Entries {
 				e := &g.Entries[i]
-				h := held{main: &e.EntryVersion, mainID: identify(&e.EntryVersion), history: map[versionID]bool{}}
+				h := held{main: &e.EntryVersion, mainID: identify(&e.EntryVersion), history: map[versionID]bool{}, group: g.UUID}
+				if since, inBin := binned[g.UUID]; inBin {
+					h.inBin, h.recycled = true, since
+					if e.Times.LocationChanged.After(since) {
+						h.recycled = e.Times.LocationChanged
+					}
+				}
 				h.versions = append(h.versions, &e.EntryVersion)
 				for j := range e.History {
 					h.versions = append(h.versions, &e.History[j])
@@ -309,8 +351,19 @@ func TestPropertyTheSetOfVersionsIsTheUnion(t *testing.T) {
 	})
 }
 
+// holdingsOutsideTheBin gives the holdings that decide the place of a kept entry: those outside
+// the recycle bin, or all of them if every copy holds the entry in the bin.
+func holdingsOutsideTheBin(holdings []held) []held {
+	outside := slices.DeleteFunc(slices.Clone(holdings), func(h held) bool { return h.inBin })
+	if len(outside) == 0 {
+		return holdings
+	}
+	return outside
+}
+
 // TestPropertyUsageIsTheMaximum: the main version has the largest values of all versions of
-// all copies, and the entry lies where a copy with the newest move has it.
+// all copies, and the entry lies where a copy with the newest move has it. A move to the bin
+// does not count against a copy that holds the entry outside the bin.
 func TestPropertyUsageIsTheMaximum(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := mergetest.Scenarios().Draw(t, "scenario")
@@ -325,17 +378,26 @@ func TestPropertyUsageIsTheMaximum(t *testing.T) {
 					if v.Times.LastAccess.After(access) {
 						access = v.Times.LastAccess
 					}
+					count = max(count, v.Times.UsageCount)
+				}
+			}
+			deciding := holdingsOutsideTheBin(holdings)
+			for _, h := range deciding {
+				for _, v := range h.versions {
 					if v.Times.LocationChanged.After(located) {
 						located = v.Times.LocationChanged
 					}
-					count = max(count, v.Times.UsageCount)
 				}
 			}
 			e := merged[uuid]
 			if !e.Times.LastAccess.Equal(access) || e.Times.UsageCount != count || !e.Times.LocationChanged.Equal(located) {
 				t.Errorf("entry %s has times %+v, want access %s, count %d, located %s", uuid, e.Times, access, count, located)
 			}
-			wantGroupFromNewestMove(t, s.Copies, result.Merged, uuid, located)
+			// An entry deleted in every copy that holds it may leave its group, see
+			// TestPropertyTheBinHoldsWhatStaysDeleted.
+			if !deciding[0].inBin {
+				wantGroupFromNewestMove(t, deciding, result.Merged, uuid, located)
+			}
 		}
 	})
 }
@@ -352,19 +414,16 @@ func groupsWithEntry(s *snapshot.Snapshot, uuid snapshot.UUID) []*snapshot.Group
 	return result
 }
 
-func wantGroupFromNewestMove(t *rapid.T, copies []merge.Copy, merged *snapshot.Snapshot, uuid snapshot.UUID, located time.Time) {
+func wantGroupFromNewestMove(t *rapid.T, holdings []held, merged *snapshot.Snapshot, uuid snapshot.UUID, located time.Time) {
 	t.Helper()
 	group := groupsWithEntry(merged, uuid)[0].UUID
-	for _, c := range copies {
-		for _, g := range groupsWithEntry(c.Snapshot, uuid) {
-			if g.UUID != group {
-				continue
-			}
-			e := allEntries(c.Snapshot)[uuid]
-			for _, v := range versionsOfEntry(e) {
-				if v.Times.LocationChanged.Equal(located) {
-					return
-				}
+	for _, h := range holdings {
+		if h.group != group {
+			continue
+		}
+		for _, v := range h.versions {
+			if v.Times.LocationChanged.Equal(located) {
+				return
 			}
 		}
 	}

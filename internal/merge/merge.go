@@ -110,6 +110,8 @@ type merger struct {
 	// entries holds every entry by UUID. A rule removes an entry by removing it here.
 	entries map[snapshot.UUID]*entryState
 	groups  map[snapshot.UUID]*groupState
+	// bins says what lies in the recycle bins. It is known from phaseDeletions on.
+	bins recycleBins
 	// out is the merged copy so far. A rule fills the parts it owns.
 	out snapshot.Snapshot
 
