@@ -78,75 +78,132 @@ func TestPropertyCommutative(t *testing.T) {
 	})
 }
 
+// coincidences is what a merge concludes from the tree it sees, and what a tree can no longer
+// show: which groups stood on one path, and which group left a cycle.
+type coincidences struct {
+	joined map[snapshot.UUID]snapshot.UUID
+	broken map[snapshot.UUID]bool
+}
+
+// coincidencesOf gives what the steps of a merge in parts concluded. The memory carries the
+// joins to the last step, and the report tells the cycles of each step.
+func coincidencesOf(steps ...*merge.Result) coincidences {
+	seen := coincidences{joined: steps[len(steps)-1].MergedGroups, broken: map[snapshot.UUID]bool{}}
+	for _, step := range steps {
+		for _, event := range step.Report {
+			if cycle, ok := event.(merge.GroupCycleBroken); ok {
+				seen.broken[cycle.Group] = true
+			}
+		}
+	}
+	return seen
+}
+
 // TestPropertyAssociative: merging in parts gives what merging at once gives.
+//
+// There is one exception, and it has no way out. Two groups on one path, or a cycle, are a matter
+// of the tree a part sees. Another part can move or rename one of those groups, and then the tree
+// of all copies has no such thing. The part has joined the groups or moved one of them by then.
+// Taking that back needs the old name in the memory, and the spec forbids names there. So a
+// scenario where the parts conclude other things than the whole stays out, and only such a one.
 func TestPropertyAssociative(t *testing.T) {
+	checked, skipped := 0, 0
 	rapid.Check(t, func(t *rapid.T) {
 		s := mergetest.Scenarios().Draw(t, "scenario")
-		if len(differentBins(s.Copies)) > 1 {
-			// A merge of a part keeps one bin, and the other one becomes a plain group, so what
-			// lies in it no longer counts as deleted. The rule of one bin in the result (ticket
-			// #8) ends this. Remove this exception with it.
-			return
-		}
 		key := drawKey(t)
-		merged := func(copies []merge.Copy) *snapshot.Snapshot {
-			return runOn(t, merge.Input{Copies: copies, Now: s.Now, Key: key}).Merged
+		run := func(copies ...merge.Copy) *merge.Result {
+			return runOn(t, merge.Input{Copies: copies, Now: s.Now, Key: key})
 		}
 		at := rapid.IntRange(1, len(s.Copies)-1).Draw(t, "split")
 
-		atOnce := merged(s.Copies)
-		inParts := merged([]merge.Copy{
-			{Name: "left", Snapshot: merged(s.Copies[:at])},
-			{Name: "right", Snapshot: merged(s.Copies[at:])},
-		})
-		oneByOne := merged(s.Copies[:1])
+		atOnce := run(s.Copies...)
+		left, right := run(s.Copies[:at]...), run(s.Copies[at:]...)
+		inParts := run(merge.Copy{Name: "left", Snapshot: left.Merged}, merge.Copy{Name: "right", Snapshot: right.Merged})
+		steps := []*merge.Result{run(s.Copies[0])}
 		for _, next := range s.Copies[1:] {
-			oneByOne = merged([]merge.Copy{{Name: "so far", Snapshot: oneByOne}, next})
+			steps = append(steps, run(merge.Copy{Name: "so far", Snapshot: steps[len(steps)-1].Merged}, next))
 		}
+		oneByOne := steps[len(steps)-1]
 
-		wantSameSnapshot(t, inParts, atOnce)
-		wantSameSnapshot(t, oneByOne, atOnce)
+		whole := coincidencesOf(atOnce)
+		for _, tc := range []struct {
+			got   *merge.Result
+			steps []*merge.Result
+		}{{inParts, []*merge.Result{left, right, inParts}}, {oneByOne, steps}} {
+			if !reflect.DeepEqual(coincidencesOf(tc.steps...), whole) {
+				skipped++
+				continue
+			}
+			checked++
+			wantSameSnapshot(t, tc.got.Merged, atOnce.Merged)
+		}
 	})
+	t.Logf("%d merges in parts compared, %d concluded other things than the whole", checked, skipped)
+	if skipped > checked/4 {
+		t.Errorf("%d of %d merges in parts stayed out, so the property says little", skipped, checked+skipped)
+	}
+}
+
+// questionsToBeGone gives the questions the decisions have closed. An answer about all pairs with
+// the same content closes the pairs it names if it merges them. Its own ID says nothing: the
+// question exists as long as such a pair is open. A pair stays open if a merge would have made
+// one entry of two others the human wants kept apart, and the report says so.
+func questionsToBeGone(decisions []merge.Decision, result *merge.Result) map[merge.QuestionID]bool {
+	gone := map[merge.QuestionID]bool{}
+	for _, d := range decisions {
+		gone[d.Question] = true
+	}
+	for _, q := range result.Questions {
+		if bulk, ok := q.Detail.(merge.IdenticalPairs); ok {
+			if gone[q.ID] && slices.Contains(decisions, merge.Decision{Question: q.ID, Choice: 1}) {
+				for _, pair := range bulk.Pairs {
+					gone[pair] = true
+				}
+			}
+			delete(gone, q.ID)
+		}
+	}
+	for _, event := range result.Report {
+		if open, ok := event.(merge.PairNotMerged); ok {
+			delete(gone, merge.QuestionID("pair:"+open.First.Entry.String()+":"+open.Second.Entry.String()))
+		}
+	}
+	return gone
 }
 
 // TestPropertyIdempotent: merging the result with any of its copies, or with itself, changes
-// nothing, with or without decisions. It settles every conflict too: the only question left
-// is about a main version that this copy has replaced. Pairs stay out of this until the tool
-// remembers its decisions: without that, a merged pair comes back with an old copy, and a pair
-// that was kept apart asks again. A deletion asks again for the same reason, and the same answer
-// gives the same result.
+// nothing, with any decisions and also later. No question the human has answered comes back, so
+// the merge needs no decisions. The other questions may stay, and a main version that this copy
+// has replaced is the only conflict left.
 func TestPropertyIdempotent(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := mergetest.Scenarios().Draw(t, "scenario")
 		in := merge.Input{Copies: s.Copies, Now: s.Now, Key: drawKey(t)}
-		in.Decisions = drawDecisions(t, withoutPairs(runOn(t, in).Questions))
+		in.Decisions = drawDecisions(t, runOn(t, in).Questions)
 		result := runOn(t, in)
+		gone := questionsToBeGone(in.Decisions, result)
 		own := merge.Copy{Name: "result", Snapshot: result.Merged}
 		merged := allEntries(result.Merged)
+		later := s.Now.Add(rapid.SampledFrom([]time.Duration{0, day}).Draw(t, "time to the next merge"))
 
 		for _, other := range append(slices.Clone(s.Copies), own) {
-			pair := merge.Input{Copies: []merge.Copy{own, other}, Now: s.Now, Key: in.Key}
-			questions := runOn(t, pair).Questions
-			asked, deletions := conflictQuestions(questions), deletionQuestions(questions)
-			if len(asked)+len(deletions) != len(withoutPairs(questions)) {
-				t.Errorf("the merge with %s asks something else: %s", other.Name, printed(questions))
-			}
-			for _, d := range in.Decisions {
-				if slices.ContainsFunc(questions, func(q merge.Question) bool {
-					_, isDeletion := q.Detail.(merge.Deletion)
-					return isDeletion && q.ID == d.Question
-				}) {
-					pair.Decisions = append(pair.Decisions, d)
+			pair := merge.Input{Copies: []merge.Copy{own, other}, Now: later, Key: in.Key}
+			again := runOn(t, pair)
+
+			wantSameSnapshot(t, again.Merged, result.Merged)
+			for _, q := range again.Questions {
+				if gone[q.ID] {
+					t.Errorf("the merge with %s asks %s again", other.Name, q.ID)
 				}
 			}
-
-			wantSameSnapshot(t, runOn(t, pair).Merged, result.Merged)
+			asked := conflictQuestions(again.Questions)
 			for uuid, holdings := range heldEntries(pair.Copies) {
 				if merged[uuid] == nil {
-					continue // The human deleted it, and only an old copy still holds it.
+					continue // The human deleted it or merged it, and only an old copy still holds it.
 				}
 				conflict, got := asked[uuid]
-				if want := mainIsReplaced(holdings, identify(&merged[uuid].EntryVersion)); got != want {
+				answered := gone[merge.QuestionID("conflict:"+uuid.String())]
+				if want := !answered && mainIsReplaced(holdings, identify(&merged[uuid].EntryVersion)); got != want {
 					t.Errorf("the merge with %s, entry %s: question = %v, want %v", other.Name, uuid, got, want)
 				}
 				if got && (conflict.Close || conflict.Future) {
@@ -572,10 +629,18 @@ func TestPropertyUsageIsTheMaximum(t *testing.T) {
 			// An entry deleted in every copy that holds it may leave its group, see
 			// TestPropertyTheBinHoldsWhatStaysDeleted.
 			if !deciding[0].inBin {
-				wantGroupFromNewestMove(t, deciding, result.Merged, uuid, located)
+				wantGroupFromNewestMove(t, deciding, result, uuid, located)
 			}
 		}
 	})
+}
+
+// placeInResult gives the UUID a group of a copy has in the result.
+func placeInResult(group snapshot.UUID, result *merge.Result) snapshot.UUID {
+	if head, joined := result.MergedGroups[group]; joined {
+		return head
+	}
+	return group
 }
 
 func groupsWithEntry(s *snapshot.Snapshot, uuid snapshot.UUID) []*snapshot.Group {
@@ -590,12 +655,14 @@ func groupsWithEntry(s *snapshot.Snapshot, uuid snapshot.UUID) []*snapshot.Group
 	return result
 }
 
-func wantGroupFromNewestMove(t *rapid.T, holdings []held, merged *snapshot.Snapshot, uuid snapshot.UUID, located time.Time) {
+func wantGroupFromNewestMove(t *rapid.T, holdings []held, result *merge.Result, uuid snapshot.UUID, located time.Time) {
 	t.Helper()
+	merged := result.Merged
 	group := groupsWithEntry(merged, uuid)[0].UUID
 	for _, h := range holdings {
-		// All root groups are one group in the result, whatever their UUIDs.
-		if h.group != group && !(h.atRoot && group == merged.Root.UUID) {
+		// All root groups are one group in the result, whatever their UUIDs, and so are the
+		// groups that joined.
+		if placeInResult(h.group, result) != group && !(h.atRoot && group == merged.Root.UUID) {
 			continue
 		}
 		for _, v := range h.versions {

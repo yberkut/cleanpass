@@ -160,9 +160,10 @@ func trimHistory(t *rapid.T, _ *world, f *fork) {
 // saveAgain does what a plain save does: it renews the service data and may write the same
 // content in another order, without any change to the versions.
 func saveAgain(t *rapid.T, _ *world, f *fork) {
-	f.snapshot.Meta.CustomData = []snapshot.CustomDataItem{
-		{Key: snapshot.CustomDataRandomSlug, Value: drawText(t), LastModification: f.tick(t)},
-	}
+	slug := snapshot.CustomDataItem{Key: snapshot.CustomDataRandomSlug, Value: drawText(t), LastModification: f.tick(t)}
+	f.snapshot.Meta.CustomData = append(slices.DeleteFunc(f.snapshot.Meta.CustomData, func(item snapshot.CustomDataItem) bool {
+		return item.Key == slug.Key
+	}), slug)
 	ref, ok := f.pickEntry(t)
 	if !ok {
 		return

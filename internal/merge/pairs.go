@@ -82,12 +82,19 @@ func askAboutPairs(m *merger) {
 	pairs := m.findPairs()
 	var identical []QuestionID
 	for _, pair := range pairs {
+		if m.memory.different[orderedPair(pair.first.uuid, pair.second.uuid)] {
+			pair.answer, pair.answered = pairAnswerKeepBoth, true
+			continue
+		}
 		detail := pair.detail()
 		id := QuestionID("pair:" + pair.first.uuid.String() + ":" + pair.second.uuid.String())
 		pair.answer, pair.answered = m.ask(Question{ID: id, Choices: 2, Detail: detail})
 		pair.sameContent = detail.SameContent
 		if detail.SameContent {
 			identical = append(identical, id)
+		}
+		if pair.answered && pair.answer == pairAnswerKeepBoth {
+			m.remember(memoryDifferent, pair.first.uuid.String(), pair.second.uuid.String())
 		}
 	}
 	mergeIdentical := false
@@ -102,10 +109,13 @@ func askAboutPairs(m *merger) {
 // count. An entry can be in several pairs, so the merges make families, and the smallest UUID of
 // a family is the one that stays.
 func (m *merger) mergePairs(pairs []*similarPair, mergeIdentical bool) {
-	keptApart := slices.DeleteFunc(slices.Clone(pairs), func(p *similarPair) bool {
-		return !p.answered || p.answer != pairAnswerKeepBoth
-	})
-	family := families{}
+	keptApart := slices.Collect(maps.Keys(m.memory.different))
+	for _, pair := range pairs {
+		if pair.answered && pair.answer == pairAnswerKeepBoth {
+			keptApart = append(keptApart, orderedPair(pair.first.uuid, pair.second.uuid))
+		}
+	}
+	family := m.sameEntries
 	for _, pair := range pairs {
 		switch {
 		case !pair.wantsMerge(mergeIdentical):
@@ -158,10 +168,10 @@ func (f families) join(a, b snapshot.UUID) {
 }
 
 // wouldJoinAny says merging the pair would make one family of the two entries of one of the others.
-func (f families) wouldJoinAny(pair *similarPair, others []*similarPair) bool {
+func (f families) wouldJoinAny(pair *similarPair, others [][2]snapshot.UUID) bool {
 	a, b := f.head(pair.first.uuid), f.head(pair.second.uuid)
-	return slices.ContainsFunc(others, func(other *similarPair) bool {
-		x, y := f.head(other.first.uuid), f.head(other.second.uuid)
+	return slices.ContainsFunc(others, func(other [2]snapshot.UUID) bool {
+		x, y := f.head(other[0]), f.head(other[1])
 		return (x == a && y == b) || (x == b && y == a)
 	})
 }
@@ -176,7 +186,6 @@ func (m *merger) absorb(into, absorbed *entryState) {
 		into.located, into.group = absorbed.located, absorbed.group
 	}
 	delete(m.entries, absorbed.uuid)
-	m.absorbed = append(m.absorbed, Absorption{Absorbed: absorbed.uuid, Into: into.uuid})
 }
 
 // similarPair is two entries with something in common, the smaller UUID first.
@@ -248,7 +257,8 @@ func passwordOf(v *snapshot.EntryVersion) string {
 //   - no answer changes that version, so no answer changes the questions about pairs.
 //
 // An entry that is deleted in any copy waits: merging it could put a living account into the
-// recycle bin or contradict the answer about the deletion. A later merge sees the pair.
+// recycle bin or contradict the answer about the deletion. A later merge sees the pair, once the
+// memory says the human keeps the entry.
 func (m *merger) findPairs() []*similarPair {
 	deleted := m.deletedSomewhere()
 	withSameValue := map[similarity][]*entryState{}
@@ -300,6 +310,13 @@ func (m *merger) deletedSomewhere() map[snapshot.UUID]bool {
 				}
 			})
 		})
+	}
+	for id := range deleted {
+		if e := m.entries[id]; e != nil {
+			if answer, remembered := m.memory.deletionAnswer(m.deletion(e, m.records[id])); remembered && answer == AnswerKeep {
+				delete(deleted, id)
+			}
+		}
 	}
 	return deleted
 }

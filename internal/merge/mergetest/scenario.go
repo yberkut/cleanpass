@@ -16,7 +16,6 @@ package mergetest
 
 import (
 	"fmt"
-	"maps"
 	"time"
 	"unicode"
 
@@ -78,7 +77,7 @@ func Scenarios() *rapid.Generator[Scenario] {
 				clock:    start.Add(rapid.SampledFrom(clockErrors).Draw(t, "clock error")),
 			})
 		}
-		for range rapid.IntRange(0, 14).Draw(t, "moves") {
+		for range rapid.IntRange(0, 16).Draw(t, "moves") {
 			f := rapid.SampledFrom(w.forks).Draw(t, "fork")
 			m := rapid.SampledFrom(moves).Draw(t, "move")
 			m.apply(t, w, f)
@@ -90,6 +89,26 @@ func Scenarios() *rapid.Generator[Scenario] {
 		}
 		return scenario
 	})
+}
+
+// dropUnusedAttachments leaves the bytes the versions of this copy refer to. A save does that,
+// and the Gateway stops at a file that holds more.
+func (f *fork) dropUnusedAttachments() {
+	used := map[snapshot.AttachmentID]snapshot.Attachment{}
+	keep := func(v *snapshot.EntryVersion) {
+		for _, ref := range v.Attachments {
+			if stored, known := f.snapshot.Attachments[ref.ID]; known {
+				used[ref.ID] = stored
+			}
+		}
+	}
+	for _, ref := range f.entries() {
+		keep(&ref.entry().EntryVersion)
+		for i := range ref.entry().History {
+			keep(&ref.entry().History[i])
+		}
+	}
+	f.snapshot.Attachments = used
 }
 
 const day = 24 * time.Hour
@@ -104,24 +123,6 @@ var (
 	// ages holds how long after the fork the merge runs.
 	ages = []time.Duration{day, 7 * day, 30 * day, 60 * day}
 )
-
-// dropUnusedAttachments removes the bytes no version refers to any more, as a save does. The
-// Gateway stops a file with such bytes, so no copy with them reaches the engine.
-func (f *fork) dropUnusedAttachments() {
-	used := map[snapshot.AttachmentID]bool{}
-	for _, ref := range f.entries() {
-		e := ref.entry()
-		for _, a := range e.Attachments {
-			used[a.ID] = true
-		}
-		for i := range e.History {
-			for _, a := range e.History[i].Attachments {
-				used[a.ID] = true
-			}
-		}
-	}
-	maps.DeleteFunc(f.snapshot.Attachments, func(id snapshot.AttachmentID, _ snapshot.Attachment) bool { return !used[id] })
-}
 
 // tick runs the clock of the fork and gives its time.
 func (f *fork) tick(t *rapid.T) time.Time {
@@ -138,9 +139,17 @@ func (w *world) newUUID() snapshot.UUID {
 
 // newDatabase generates the database all copies fork from.
 func (w *world) newDatabase(t *rapid.T) *snapshot.Snapshot {
+	created := start.Add(-100 * day)
 	s := &snapshot.Snapshot{
-		Format:      snapshot.Format{Major: 4, Minor: 1, Cipher: snapshot.CipherAES256},
-		Meta:        snapshot.Meta{DatabaseName: "base", SettingsChanged: start.Add(-100 * day)},
+		Format: snapshot.Format{Major: 4, Minor: 1, Cipher: snapshot.CipherAES256},
+		Meta: snapshot.Meta{
+			DatabaseName:    "base",
+			SettingsChanged: created,
+			CustomIcons:     []snapshot.CustomIcon{{UUID: iconIDs[0], Data: "base", LastModification: created}},
+			CustomData:      []snapshot.CustomDataItem{{Key: customDataKeys[0], Value: "base", LastModification: created}},
+			HistoryMaxItems: 10,
+			HistoryMaxSize:  6291456,
+		},
 		Root:        snapshot.Group{UUID: w.newUUID(), Name: "Root"},
 		Attachments: map[snapshot.AttachmentID]snapshot.Attachment{},
 	}
@@ -183,7 +192,7 @@ var (
 	titles     = []string{"Mail", "Bank", "Forum", "Git"}
 	userNames  = []string{"user", "admin", "user@example.com"}
 	urls       = []string{"", "https://example.com/login", "https://mail.example.com"}
-	groupNames = []string{"Work", "Home", "Keys"}
+	groupNames = []string{"Work", "Home", "Keys", "Recycle Bin"}
 	tagSets    = []string{"", "alpha", "alpha,beta", "beta;alpha", "gamma"}
 	colors     = []string{"", "#112233", "#445566"}
 )

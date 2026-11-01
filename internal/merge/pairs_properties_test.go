@@ -226,8 +226,9 @@ func TestPropertyNoLossWithPairs(t *testing.T) {
 			copies[i] = c.Snapshot
 		}
 		allowed := lossaudit.Allowed{
-			Absorbed: map[snapshot.UUID]snapshot.UUID{},
-			Deleted:  slices.Collect(maps.Keys(allowedToGo(in.Decisions))),
+			Absorbed:     map[snapshot.UUID]snapshot.UUID{},
+			Deleted:      slices.Collect(maps.Keys(allowedToGo(in.Decisions))),
+			MergedGroups: result.MergedGroups,
 		}
 		for _, a := range result.Absorbed {
 			allowed.Absorbed[a.Absorbed] = a.Into

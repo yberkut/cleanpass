@@ -122,6 +122,14 @@ func wantVersions(t *testing.T, e *snapshot.Entry, main string, history ...strin
 	}
 }
 
+// withoutCustomData leaves out what an answer may add to the custom data of the database: an
+// answer that changes nothing in the data still goes to the memory.
+func withoutCustomData(s *snapshot.Snapshot) *snapshot.Snapshot {
+	result := *s
+	result.Meta.CustomData = nil
+	return &result
+}
+
 func wantNoQuestions(t *testing.T, result *merge.Result) {
 	t.Helper()
 	if len(result.Questions) != 0 {

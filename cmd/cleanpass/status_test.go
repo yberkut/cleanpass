@@ -496,6 +496,27 @@ func TestStatusCallsTwoEditsInTheSameSecondALagOnEveryRun(t *testing.T) {
 	}
 }
 
+// An earlier merge has made two entries one, or has deleted one. Each copy still holds them, and
+// the merge of all holds them no longer under that UUID. That says nothing about their custom data.
+func TestStatusCallsCopiesTheSameWhenTheMemoryTakesAnEntryAway(t *testing.T) {
+	first := fields("Title", "Пошта", "UserName", "я")
+	second := fields("Title", "Пошта", "UserName", "я", "Notes", "інше")
+	const smaller, larger = "00000000000000000000000000000200", "00000000000000000000000000000201"
+	const deleted, changed = "2026-03-20T10:00:00Z", "2026-03-15T10:00:00Z"
+	for name, xml := range map[string]string{
+		"two entries made one": memoryItem(withEntries(first, second), "entries/"+smaller+"/"+larger),
+		"an entry deleted":     memoryItem(withRecord(deleted), "accepted/"+plainEntryID+"/"+changed),
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			a := rawCopy(t, dir, "a.kdbx", xml)
+			b := rawCopy(t, dir, "b.kdbx", xml)
+
+			wantCode(t, testkit.Run(t, passwords(2), "status", a.Path, b.Path), 0)
+		})
+	}
+}
+
 // A copy whose main version lacks the custom data lags, whichever way the key orders the versions.
 func TestStatusSeesMissingCustomDataOnEveryRun(t *testing.T) {
 	dir := t.TempDir()
@@ -822,6 +843,40 @@ func TestStatusSeesADeletion(t *testing.T) {
 		saveAgain(t, b)
 
 		wantCode(t, testkit.Run(t, passwords(2), "status", a.Path, b.Path), 0)
+	})
+}
+
+// After an answer the result holds the record about the deletion and the memory of the answer, so
+// a merge with the old copy brings nothing new and asks nothing: the old copy only lags.
+func TestStatusCallsAnOldCopyBehindAResultWithAnAnswerAboutADeletion(t *testing.T) {
+	const (
+		second = "00000000000000000000000000000101"
+		// The real deletions below have the time of this run, and an answer knows no later one.
+		through = "2099-01-01T00:00:00Z"
+		decided = "2026-10-01T10:00:00Z"
+	)
+	noBin := strings.Replace(testkit.RichXML(), "<RecycleBinEnabled>True<", "<RecycleBinEnabled>False<", 1)
+	withAnswer := func(xml, kind string) string {
+		item := "<Item><Key>cleanpass/" + kind + "/" + second + "/" + through + "</Key><Value>" + decided + "</Value></Item>"
+		xml = strings.Replace(xml, "<Item><Key>meta-custom-key</Key>", item+"<Item><Key>meta-custom-key</Key>", 1)
+		return strings.Replace(xml, "<DeletedObjects>", "<DeletedObjects><DeletedObject><UUID>AAAAAAAAAAAAAAAAAAABAQ==</UUID><DeletionTime>"+decided+"</DeletionTime></DeletedObject>", 1)
+	}
+
+	t.Run("the human kept the entry", func(t *testing.T) {
+		dir := t.TempDir()
+		result := newCopy(t, dir, "result.kdbx", withAnswer(noBin, "rejected"))
+		deleted := newCopy(t, dir, "deleted.kdbx", noBin)
+		deleted.CLI(t, "rm", workEntry)
+
+		wantAhead(t, testkit.Run(t, passwords(2), "status", result.Path, deleted.Path), result.Path, deleted.Path)
+	})
+	t.Run("the human deleted the entry", func(t *testing.T) {
+		dir := t.TempDir()
+		result := newCopy(t, dir, "result.kdbx", withAnswer(noBin, "accepted"))
+		result.CLI(t, "rm", workEntry)
+		old := newCopy(t, dir, "old.kdbx", noBin)
+
+		wantAhead(t, testkit.Run(t, passwords(2), "status", result.Path, old.Path), result.Path, old.Path)
 	})
 }
 

@@ -18,13 +18,13 @@ const CustomDataMarker = "CUSTOM-DATA-MARKER-"
 func init() {
 	register("edit as KeePassXC does", editAsKeePassXC)
 	register("edit behind the clock as KeePassXC does", editBehindTheClockAsKeePassXC)
-	register("set custom data in the same second", setCustomDataInTheSameSecond)
-	register("set custom data", setCustomData)
-	register("forget custom data", forgetCustomData)
+	register("set custom data of an entry in the same second", setEntryDataInTheSameSecond)
+	register("set custom data of an entry", setEntryData)
+	register("forget custom data of an entry", forgetEntryData)
 	register("renew the time", renewTime)
 }
 
-var customDataKeys = []string{"KPXC_BROWSER", "plugin", "other"}
+var entryDataKeys = []string{"KPXC_BROWSER", "plugin", "other"}
 
 func drawCustomDataValue(t *rapid.T) string {
 	return fmt.Sprintf("%s%d", CustomDataMarker, rapid.IntRange(0, 2).Draw(t, "custom data value"))
@@ -58,9 +58,9 @@ func editBehindTheClockAsKeePassXC(t *rapid.T, _ *world, f *fork) {
 	}
 }
 
-// setCustomDataInTheSameSecond sets an item the way an edit does, with no other change, and the
+// setEntryDataInTheSameSecond sets an item the way an edit does, with no other change, and the
 // clock has not moved on. So the history holds the main version without its custom data.
-func setCustomDataInTheSameSecond(t *rapid.T, _ *world, f *fork) {
+func setEntryDataInTheSameSecond(t *rapid.T, _ *world, f *fork) {
 	if ref, ok := f.pickEntry(t); ok {
 		e := ref.entry()
 		keepInHistoryWithoutCustomData(e)
@@ -77,8 +77,8 @@ func pickVersion(t *rapid.T, e *snapshot.Entry) *snapshot.EntryVersion {
 	return &e.History[at-1]
 }
 
-// setCustomData sets an item with no new time, as a plugin or another program can.
-func setCustomData(t *rapid.T, _ *world, f *fork) {
+// setEntryData sets an item with no new time, as a plugin or another program can.
+func setEntryData(t *rapid.T, _ *world, f *fork) {
 	ref, ok := f.pickEntry(t)
 	if !ok {
 		return
@@ -87,13 +87,13 @@ func setCustomData(t *rapid.T, _ *world, f *fork) {
 }
 
 func setItem(t *rapid.T, v *snapshot.EntryVersion) {
-	key := rapid.SampledFrom(customDataKeys).Draw(t, "custom data key")
+	key := rapid.SampledFrom(entryDataKeys).Draw(t, "custom data key")
 	v.CustomData = slices.DeleteFunc(v.CustomData, func(item snapshot.CustomDataItem) bool { return item.Key == key })
 	v.CustomData = append(v.CustomData, snapshot.CustomDataItem{Key: key, Value: drawCustomDataValue(t)})
 }
 
-// forgetCustomData removes an item with no new time, as a program that does not keep it does.
-func forgetCustomData(t *rapid.T, _ *world, f *fork) {
+// forgetEntryData removes an item with no new time, as a program that does not keep it does.
+func forgetEntryData(t *rapid.T, _ *world, f *fork) {
 	ref, ok := f.pickEntry(t)
 	if !ok {
 		return

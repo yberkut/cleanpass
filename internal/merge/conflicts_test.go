@@ -387,7 +387,7 @@ func TestAnswerZeroKeepsTheRuleOfTheMaximum(t *testing.T) {
 
 	with := mustRun(t, in)
 
-	if !reflect.DeepEqual(with.Merged, without.Merged) {
+	if !reflect.DeepEqual(withoutCustomData(with.Merged), withoutCustomData(without.Merged)) {
 		t.Errorf("the answer changed the result:\n%+v\n%+v", with.Merged, without.Merged)
 	}
 	if change := theEntryChange(t, with); change.Outcome != merge.OutcomeAsked || !change.Replaced {
