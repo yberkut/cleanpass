@@ -1,5 +1,6 @@
 // Package report is the Report module: it turns data into text. Its input never
-// holds secret values: it takes these plain structures, not a Snapshot.
+// holds secret values: it takes these plain structures and merge.Facts, not a Snapshot
+// or a merge.Result. A test reads the types of its input to prove that.
 package report
 
 import (
@@ -23,6 +24,9 @@ type Passport struct {
 	Stats      snapshot.Stats
 	Format     snapshot.Format
 	Freshest   bool
+	// FromTheFuture is the newest time stamp of the copy if it lies after the current time, or
+	// zero if none does.
+	FromTheFuture time.Time
 	// FieldLosses is what a save of this copy would not keep. It holds no values.
 	FieldLosses []snapshot.FieldLoss
 }
@@ -68,6 +72,11 @@ func writePassport(w io.Writer, number int, p *Passport) error {
 	}
 	if err := table.Flush(); err != nil {
 		return err
+	}
+	if !p.FromTheFuture.IsZero() {
+		if _, err := fmt.Fprintln(w, "  "+text.FutureStampWarning(formatTime(p.FromTheFuture))); err != nil {
+			return err
+		}
 	}
 	return WriteFieldLosses(w, p.FieldLosses)
 }
