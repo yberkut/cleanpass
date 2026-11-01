@@ -1,0 +1,185 @@
+name: CI
+
+# Every push to any branch runs this, and the release workflow calls it before it
+# publishes anything. A pull request shows the result of the push of its branch, so a
+# pull_request trigger would only test the same commit twice.
+on:
+  push:
+    branches: ["**"]
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CGO_ENABLED: "0"
+  # One version on every OS, from the files of the KeePassXC project. Package managers do
+  # not fit: Homebrew and Chocolatey move to each new release without a change here, and
+  # the apt package of Ubuntu 24.04 is 2.7.6. To change the version, edit this line and
+  # keepassxc-file and keepassxc-sha256 in the matrix. Each file has a .DIGEST file next
+  # to it in the KeePassXC release, and the file names change between releases.
+  KEEPASSXC_VERSION: "2.7.12"
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            keepassxc-file: KeePassXC-2.7.12-x86_64.AppImage
+            keepassxc-sha256: 564fe8b751b9ef7aa057e4d3d0b2878db24eaa0f6b1c855c82e699ab0913ae49
+            scenarios: 10000
+          - os: macos-26
+            keepassxc-file: KeePassXC-2.7.12-arm64.dmg
+            keepassxc-sha256: 65f4f63607180c0a15794b4a4068f85e99ed5391c87c1fb9312648f1b36fed40
+            scenarios: 1000
+          - os: windows-2025
+            keepassxc-file: KeePassXC-2.7.12-Win64.msi
+            keepassxc-sha256: feee096c1d5d0d7bb7b36b18174818f7bac889be7668c550ff0e5ef9206ea9a5
+            scenarios: 1000
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache-dependency-path: |
+            go.sum
+            third_party/gokeepasslib/go.sum
+
+      - name: Download KeePassXC
+        shell: bash
+        env:
+          FILE: ${{ matrix.keepassxc-file }}
+          SHA256: ${{ matrix.keepassxc-sha256 }}
+        run: |
+          curl --fail --silent --show-error --location --retry 3 --output "$RUNNER_TEMP/$FILE" \
+            "https://github.com/keepassxreboot/keepassxc/releases/download/$KEEPASSXC_VERSION/$FILE"
+          actual="$(openssl dgst -sha256 "$RUNNER_TEMP/$FILE" | awk '{print $NF}')"
+          echo "SHA-256 of $FILE: $actual"
+          test "$actual" = "$SHA256"
+
+      # The AppImage is unpacked, because running it needs FUSE and the runner has no
+      # libfuse2. Its AppRun only adds usr/bin to PATH, so that folder is enough.
+      # The AppImage leaves the listed libraries to the system, and keepassxc-cli 2.7.12
+      # links them through keepassx_core. xmllint is for the schema test of the library
+      # copy: without it that test skips itself.
+      - name: Install KeePassXC and xmllint (Linux)
+        if: runner.os == 'Linux'
+        env:
+          FILE: ${{ matrix.keepassxc-file }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libxml2-utils \
+            libdbus-1-3 libegl1 libfontconfig1 libfreetype6 libgl1 libglib2.0-0t64 \
+            libharfbuzz0b libusb-1.0-0 libx11-6 libxcb1
+          xmllint --version
+          cd "$RUNNER_TEMP"
+          chmod +x "$FILE"
+          "./$FILE" --appimage-extract > /dev/null
+          echo "$RUNNER_TEMP/squashfs-root/usr/bin" >> "$GITHUB_PATH"
+          # Qt 5 encodes file names by the locale, and the tests use Cyrillic paths.
+          echo "LC_ALL=C.UTF-8" >> "$GITHUB_ENV"
+
+      - name: Install KeePassXC (macOS)
+        if: runner.os == 'macOS'
+        env:
+          FILE: ${{ matrix.keepassxc-file }}
+        run: |
+          mountpoint="$RUNNER_TEMP/keepassxc-image"
+          mkdir -p "$mountpoint"
+          hdiutil attach "$RUNNER_TEMP/$FILE" -nobrowse -readonly -mountpoint "$mountpoint"
+          cp -R "$mountpoint/KeePassXC.app" /Applications/
+          hdiutil detach "$mountpoint"
+          echo "/Applications/KeePassXC.app/Contents/MacOS" >> "$GITHUB_PATH"
+
+      - name: Install KeePassXC (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          FILE: ${{ matrix.keepassxc-file }}
+        run: |
+          $msi = Join-Path $env:RUNNER_TEMP $env:FILE
+          $install = Start-Process msiexec.exe -ArgumentList "/i `"$msi`" /qn /norestart" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "msiexec exit code $($install.ExitCode)" }
+          "C:\Program Files\KeePassXC" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Check that the real KeePassXC runs
+        shell: bash
+        run: |
+          version="$(keepassxc-cli --version | tr -d '\r')"
+          echo "keepassxc-cli $version"
+          test "$version" = "$KEEPASSXC_VERSION"
+
+      - name: Vet
+        run: go vet ./...
+
+      # -count=1: the Go cache does not know about keepassxc-cli, so a cached result could
+      # hide a change of KeePassXC.
+      - name: Test
+        run: go test -count=1 ./...
+
+      # The library copy has its own go.mod, and the spec wants its full suite on each
+      # update. A test in cmd/cleanpass runs it too, but this step gives it a line of its
+      # own in the log.
+      - name: Test the library copy
+        working-directory: third_party/gokeepasslib
+        run: go test -count=1 ./...
+
+      # Ticket #16 runs the merge scenarios here. matrix.scenarios holds the target of the
+      # spec: 10 000 on Linux, at least 1 000 on macOS and Windows.
+
+      # Every target builds from every OS: "from one PC" holds wherever this runs.
+      - name: Build every target
+        run: go run ./tools/dist
+
+      # The file for this OS is built like a release file. The database is synthetic.
+      - name: Run the built file
+        shell: bash
+        run: |
+          extension=""
+          if [ "$RUNNER_OS" = "Windows" ]; then extension=".exe"; fi
+          tool="dist/cleanpass-$(go env GOOS)-$(go env GOARCH)$extension"
+          "$tool" --help > /dev/null
+          password="synthetic-smoke-password"
+          database="$RUNNER_TEMP/smoke.kdbx"
+          printf '%s\n%s\n' "$password" "$password" | keepassxc-cli db-create -q -t 100 -p "$database"
+          printf '%s\n' "$password" | "$tool" compare "$database" | tee "$RUNNER_TEMP/smoke.txt"
+          grep -q "smoke.kdbx" "$RUNNER_TEMP/smoke.txt"
+
+  govulncheck:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache-dependency-path: go.sum
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+
+      # Which code is reachable depends on the OS, and the release has files for all three.
+      - name: Check every target OS
+        run: |
+          for goos in linux darwin windows; do
+            echo "::group::$goos"
+            GOOS="$goos" govulncheck ./...
+            echo "::endgroup::"
+          done
