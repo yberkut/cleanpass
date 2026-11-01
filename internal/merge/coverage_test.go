@@ -2,9 +2,11 @@ package merge_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/yberkut/cleanpass/internal/merge"
 	"github.com/yberkut/cleanpass/internal/merge/mergetest"
+	"github.com/yberkut/cleanpass/internal/snapshot"
 )
 
 // A property says nothing about a case the generator never makes. So this test counts the
@@ -31,6 +33,12 @@ func TestScenariosReachEveryCase(t *testing.T) {
 			}
 			if conflict.Future && !conflict.Close {
 				seen["version from the future with a long gap"]++
+			}
+			if conflict.Replaced && !conflict.Close && !conflict.Future {
+				seen["a question only about a replaced main version"]++
+			}
+			if conflict.Replaced && (conflict.Close || conflict.Future) {
+				seen["a replaced main version in a conflict"]++
 			}
 			if len(conflict.Versions) > 2 {
 				seen["more than two versions in a question"]++
@@ -66,6 +74,9 @@ func TestScenariosReachEveryCase(t *testing.T) {
 				seen["versions exactly a day apart"]++
 			}
 		}
+		if movesWithTheKey(t, s.Now, result.Merged) {
+			seen["a main version that moves with the key"]++
+		}
 	}
 	t.Logf("cases in 500 scenarios: %v", seen)
 	for _, want := range []string{
@@ -73,11 +84,35 @@ func TestScenariosReachEveryCase(t *testing.T) {
 		"more than two versions in a question", "versions with the same time", "a gap just below a day",
 		"entry in part of the copies", "copy that lags", "conflict with a long gap", "conflict with a question",
 		"replaced version back on top", "versions exactly a day apart",
+		"a question only about a replaced main version", "a replaced main version in a conflict",
+		"a main version that moves with the key",
 	} {
 		if seen[want] == 0 {
 			t.Errorf("no scenario reaches the case %q", want)
 		}
 	}
+}
+
+// movesWithTheKey says another run would put another main version on top of this result.
+func movesWithTheKey(t *testing.T, now time.Time, settled *snapshot.Snapshot) bool {
+	t.Helper()
+	before := allEntries(settled)
+	for i := range 4 {
+		result, err := merge.Run(merge.Input{
+			Copies: []merge.Copy{{Name: "result", Snapshot: settled}},
+			Now:    now,
+			Key:    merge.Key{31: byte(i + 1)},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for uuid, e := range allEntries(result.Merged) {
+			if identify(&e.EntryVersion) != identify(&before[uuid].EntryVersion) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func isExactlyOneDayApart(change merge.EntryChange) bool {

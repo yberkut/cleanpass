@@ -311,14 +311,18 @@ func TestThreeCopiesWithOneLaggingAndTwoInConflict(t *testing.T) {
 	wantVersions(t, onlyEntry(t, result.Merged), "right", "base", "left")
 }
 
-// What another copy has replaced is not a conflict, whichever copy holds what.
-func TestCopiesThatReplacedEachOthersVersionDoNotConflict(t *testing.T) {
+// Each copy has replaced the main version of the other. That is no conflict, but the clock
+// cannot be right in both copies, so the human says which order holds.
+func TestCopiesThatReplacedEachOthersVersionAskOnlyAboutTheClock(t *testing.T) {
 	one := version(hours(1), "one")
 	two := version(hours(2), "two")
 
 	result := mergeOf(t, database(entry(one, two)), database(entry(two, one)))
 
-	wantNoQuestions(t, result)
+	_, conflict := theConflict(t, result)
+	if !conflict.Replaced || conflict.Close || conflict.Future {
+		t.Errorf("replaced = %v, close = %v, future = %v, want only replaced", conflict.Replaced, conflict.Close, conflict.Future)
+	}
 	wantVersions(t, onlyEntry(t, result.Merged), "two", "one")
 }
 
@@ -331,20 +335,205 @@ func TestTwoCopiesWithTheSameMainVersionDoNotConflict(t *testing.T) {
 	wantVersions(t, onlyEntry(t, result.Merged), "same", "old")
 }
 
-// The main version is the newest by the clock, also when a copy has already replaced it.
-// So the clock can put a replaced version back on top. This follows the rule of the spec,
-// and the report must say it happened.
-func TestAVersionThatACopyReplacedCanBecomeMainAndTheReportSaysSo(t *testing.T) {
-	skewed := version(hours(10), "replaced by the next edit")
-	edited := version(hours(5), "the latest edit")
+// clockAnomaly gives a copy whose clock ran behind: its latest edit has an older time than
+// the version it replaced, which the other copy still holds as main.
+func clockAnomaly() (behind, ahead *snapshot.Snapshot) {
+	replaced := version(hours(10), "replaced")
+	edited := version(hours(5), "edited")
+	return database(entry(replaced)), database(entry(edited, replaced))
+}
 
-	result := mergeOf(t, database(entry(skewed)), database(entry(edited, skewed)))
+func TestAMainVersionThatACopyReplacedAsks(t *testing.T) {
+	behind, ahead := clockAnomaly()
+
+	result := mergeOf(t, behind, ahead)
+
+	q, conflict := theConflict(t, result)
+	if !conflict.Replaced || conflict.Close || conflict.Future {
+		t.Errorf("replaced = %v, close = %v, future = %v, want only replaced", conflict.Replaced, conflict.Close, conflict.Future)
+	}
+	if q.Choices != 2 || len(conflict.Versions) != 2 {
+		t.Fatalf("choices = %d, versions = %d, want 2 of each", q.Choices, len(conflict.Versions))
+	}
+	first, second := conflict.Versions[0], conflict.Versions[1]
+	if !first.Modified.Equal(hours(10)) || !slices.Equal(first.Copies, []string{"copy-1"}) {
+		t.Errorf("first answer = %+v, want the main version of the rule", first)
+	}
+	if !second.Modified.Equal(hours(5)) || !slices.Equal(second.Copies, []string{"copy-2"}) {
+		t.Errorf("second answer = %+v, want the main version of the copy that replaced it", second)
+	}
+}
+
+// Without an answer nothing changes: the rule of the maximum stays, and the report says it
+// put a replaced version on top.
+func TestAReplacedMainVersionStaysWithoutAnAnswer(t *testing.T) {
+	behind, ahead := clockAnomaly()
+
+	result := mergeOf(t, behind, ahead)
+
+	wantVersions(t, onlyEntry(t, result.Merged), "replaced", "edited")
+	change := theEntryChange(t, result)
+	if change.Outcome != merge.OutcomeAsked || !change.Replaced {
+		t.Errorf("outcome = %v, replaced = %v, want asked and true", change.Outcome, change.Replaced)
+	}
+}
+
+func TestAnswerZeroKeepsTheRuleOfTheMaximum(t *testing.T) {
+	behind, ahead := clockAnomaly()
+	in := input(named(behind, ahead)...)
+	without := mustRun(t, in)
+	q, _ := theConflict(t, without)
+	in.Decisions = []merge.Decision{{Question: q.ID, Choice: 0}}
+
+	with := mustRun(t, in)
+
+	if !reflect.DeepEqual(with.Merged, without.Merged) {
+		t.Errorf("the answer changed the result:\n%+v\n%+v", with.Merged, without.Merged)
+	}
+	if change := theEntryChange(t, with); change.Outcome != merge.OutcomeAsked || !change.Replaced {
+		t.Errorf("outcome = %v, replaced = %v, want asked and true", change.Outcome, change.Replaced)
+	}
+}
+
+func TestTheOtherAnswerMakesTheMainVersionOfThatCopyLast(t *testing.T) {
+	behind, ahead := clockAnomaly()
+	in := input(named(behind, ahead)...)
+	q, _ := theConflict(t, mustRun(t, in))
+	in.Decisions = []merge.Decision{{Question: q.ID, Choice: 1}}
+
+	result := mustRun(t, in)
+
+	merged := onlyEntry(t, result.Merged)
+	wantVersions(t, merged, "edited", "edited", "replaced")
+	if !merged.Times.LastModification.Equal(now) {
+		t.Errorf("main version has time %s, want the current time %s", merged.Times.LastModification, now)
+	}
+	if change := theEntryChange(t, result); change.Outcome != merge.OutcomeChosen || change.Replaced {
+		t.Errorf("outcome = %v, replaced = %v, want chosen and false", change.Outcome, change.Replaced)
+	}
+	for _, old := range []*snapshot.Snapshot{behind, ahead} {
+		again := mergeOf(t, result.Merged, old)
+
+		wantNoQuestions(t, again)
+		if !reflect.DeepEqual(again.Merged, result.Merged) {
+			t.Errorf("merging with an old copy changed the result:\n%+v\n%+v", again.Merged, result.Merged)
+		}
+	}
+}
+
+// Nothing has settled the order yet, so the question comes back while a copy says otherwise
+// and goes away with that copy. The result stays the same either way.
+func TestARepeatedMergeWithoutAnAnswerAsksAgainOnlyWithTheCopyThatReplacedIt(t *testing.T) {
+	behind, ahead := clockAnomaly()
+	first := mergeOf(t, behind, ahead).Merged
+
+	withAhead := mergeOf(t, first, ahead)
+	_, conflict := theConflict(t, withAhead)
+	if !conflict.Replaced {
+		t.Errorf("replaced = %v, want true", conflict.Replaced)
+	}
+	if !reflect.DeepEqual(withAhead.Merged, first) {
+		t.Errorf("the merge changed the result:\n%+v\n%+v", withAhead.Merged, first)
+	}
+	wantNoQuestions(t, mergeOf(t, first, behind))
+	wantNoQuestions(t, mergeOf(t, first))
+}
+
+// The gap does not matter here: the history says the clock is wrong, however far.
+func TestAReplacedMainVersionAsksWhateverTheGap(t *testing.T) {
+	replaced := version(hours(600), "replaced")
+
+	result := mergeOf(t, database(entry(replaced)), database(entry(version(hours(1), "edited"), replaced)))
+
+	if _, conflict := theConflict(t, result); !conflict.Replaced {
+		t.Errorf("replaced = %v, want true", conflict.Replaced)
+	}
+}
+
+func TestOneCopyWithANewerStampInItsOwnHistoryAsks(t *testing.T) {
+	result := mergeOf(t, database(entry(version(hours(5), "main"), version(hours(10), "history"))))
+
+	if _, conflict := theConflict(t, result); !conflict.Replaced {
+		t.Errorf("replaced = %v, want true", conflict.Replaced)
+	}
+	wantVersions(t, onlyEntry(t, result.Merged), "history", "main")
+}
+
+// A plain lag with clocks that agree stays silent, as the spec says.
+func TestALagWithClocksThatAgreeIsNoQuestionAndNoReplacedVersion(t *testing.T) {
+	older := version(hours(1), "old")
+
+	result := mergeOf(t, database(entry(older)), database(entry(version(hours(2), "new"), older)))
 
 	wantNoQuestions(t, result)
-	wantVersions(t, onlyEntry(t, result.Merged), "replaced by the next edit", "the latest edit")
-	change := theEntryChange(t, result)
-	if change.Outcome != merge.OutcomeUpdated || !change.Replaced {
-		t.Errorf("outcome = %v, replaced = %v, want updated and true", change.Outcome, change.Replaced)
+	if change := theEntryChange(t, result); change.Outcome != merge.OutcomeUpdated || change.Replaced {
+		t.Errorf("outcome = %v, replaced = %v, want updated and false", change.Outcome, change.Replaced)
+	}
+}
+
+// A true conflict with a long gap asks nothing by itself. With a replaced main version on top
+// the same question also shows the other versions, so one entry never has two questions.
+func TestAReplacedMainVersionAndAConflictWithALongGapGiveOneQuestion(t *testing.T) {
+	replaced := version(hours(100), "replaced")
+	edited := version(hours(50), "edited")
+	other := version(hours(10), "other")
+
+	result := mergeOf(t, database(entry(replaced)), database(entry(edited, replaced)), database(entry(other)))
+
+	q, conflict := theConflict(t, result)
+	if !conflict.Replaced || conflict.Close || conflict.Future {
+		t.Errorf("replaced = %v, close = %v, future = %v, want only replaced", conflict.Replaced, conflict.Close, conflict.Future)
+	}
+	if q.Choices != 3 {
+		t.Fatalf("choices = %d, want 3", q.Choices)
+	}
+	for i, want := range []time.Time{hours(100), hours(50), hours(10)} {
+		if got := conflict.Versions[i].Modified; !got.Equal(want) {
+			t.Errorf("answer %d has time %s, want %s", i, got, want)
+		}
+	}
+}
+
+// Two versions with the same time: a merge settled them with its key, and each later run has
+// another key. A run that moves the main version must ask, and a run that keeps it must not.
+func TestAMainVersionThatMovesWithTheKeyAlwaysAsks(t *testing.T) {
+	settled := mergeOf(t, twoDivergedCopies(0)...).Merged
+	settledMain := fieldValue(&onlyEntry(t, settled).EntryVersion, "Password")
+
+	moved, kept := 0, 0
+	for i := range 64 {
+		in := input(named(settled)...)
+		in.Key = merge.Key{31: byte(i + 1)}
+		result := mustRun(t, in)
+		if fieldValue(&onlyEntry(t, result.Merged).EntryVersion, "Password") == settledMain {
+			kept++
+			wantNoQuestions(t, result)
+			continue
+		}
+		moved++
+		q, conflict := theConflict(t, result)
+		if !conflict.Replaced {
+			t.Errorf("key %d: replaced = %v, want true", i, conflict.Replaced)
+		}
+
+		// The other answer brings the settled version back, for good.
+		in.Decisions = []merge.Decision{{Question: q.ID, Choice: 1}}
+		decided := mustRun(t, in).Merged
+		if got := fieldValue(&onlyEntry(t, decided).EntryVersion, "Password"); got != settledMain {
+			t.Errorf("key %d: the answer gives %q, want %q", i, got, settledMain)
+		}
+		for j := range 8 {
+			next := input(named(decided)...)
+			next.Key = merge.Key{30: 1, 31: byte(j + 1)}
+			after := mustRun(t, next)
+			wantNoQuestions(t, after)
+			if got := fieldValue(&onlyEntry(t, after.Merged).EntryVersion, "Password"); got != settledMain {
+				t.Errorf("key %d, then key %d: main version is %q, want %q", i, j, got, settledMain)
+			}
+		}
+	}
+	if moved == 0 || kept == 0 {
+		t.Errorf("moved %d times and kept %d times, want some of each", moved, kept)
 	}
 }
 
