@@ -146,7 +146,7 @@ func (e *entryState) copiesWithMain(key versionKey) []string {
 	var names []string
 	for i := range e.holdings {
 		if e.holdings[i].main == key {
-			names = append(names, e.holdings[i].copy)
+			names = append(names, e.holdings[i].copy.Name)
 		}
 	}
 	slices.Sort(names)

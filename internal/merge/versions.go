@@ -40,10 +40,9 @@ func (k versionKey) time() time.Time { return time.Unix(k.seconds, int64(k.nanos
 
 // version is one member of the set of versions of an entry.
 type version struct {
-	key  versionKey
+	key versionKey
+	// data holds the largest usage of all places where the copies hold this version.
 	data snapshot.EntryVersion
-	// usage joins the values of all places where the copies hold this version.
-	usage usage
 }
 
 // usage holds the values that change without a new version, so they are not part of the
@@ -62,6 +61,13 @@ func usageOf(v *snapshot.EntryVersion) usage {
 		located:    v.Times.LocationChanged,
 		previous:   v.PreviousParentGroup,
 	}
+}
+
+func (u usage) applyTo(v *snapshot.EntryVersion) {
+	v.Times.LastAccess = u.lastAccess
+	v.Times.UsageCount = u.count
+	v.Times.LocationChanged = u.located
+	v.PreviousParentGroup = u.previous
 }
 
 func (u usage) join(other usage) usage {
@@ -107,7 +113,7 @@ type entryState struct {
 
 // holding is what one copy holds of an entry.
 type holding struct {
-	copy  string
+	copy  *Copy
 	group snapshot.UUID
 	entry *snapshot.Entry
 	// main and history are the keys of the versions in this copy. A version that is both
@@ -117,13 +123,13 @@ type holding struct {
 }
 
 // hold records that a copy holds an entry in a group.
-func (m *merger) hold(copyName string, group snapshot.UUID, e *snapshot.Entry) {
+func (m *merger) hold(c *Copy, group snapshot.UUID, e *snapshot.Entry) {
 	state := m.entries[e.UUID]
 	if state == nil {
 		state = &entryState{uuid: e.UUID}
 		m.entries[e.UUID] = state
 	}
-	state.holdings = append(state.holdings, holding{copy: copyName, group: group, entry: e})
+	state.holdings = append(state.holdings, holding{copy: c, group: group, entry: e})
 }
 
 // join builds the set of versions and the location from the holdings.
@@ -155,14 +161,15 @@ func (e *entryState) put(key versionKey, data snapshot.EntryVersion) {
 		return compareKeys(v.key, key)
 	})
 	if !found {
-		e.versions = slices.Insert(e.versions, i, &version{key: key, data: data, usage: usageOf(&data)})
+		e.versions = slices.Insert(e.versions, i, &version{key: key, data: data})
 		return
 	}
 	kept := e.versions[i]
-	kept.usage = kept.usage.join(usageOf(&data))
+	joined := usageOf(&kept.data).join(usageOf(&data))
 	if bytes.Compare(exactOf(&data), exactOf(&kept.data)) < 0 {
 		kept.data = data
 	}
+	joined.applyTo(&kept.data)
 }
 
 // main gives the main version.
@@ -178,17 +185,10 @@ func (e *entryState) result() snapshot.Entry {
 	versions := make([]snapshot.EntryVersion, len(e.versions))
 	var running usage
 	for i, v := range e.versions {
-		running = running.join(v.usage)
+		running = running.join(usageOf(&v.data))
 		versions[i] = v.data
-		versions[i].Times.LastAccess = running.lastAccess
-		versions[i].Times.UsageCount = running.count
-		versions[i].Times.LocationChanged = running.located
-		versions[i].PreviousParentGroup = running.previous
+		running.applyTo(&versions[i])
 	}
 	last := len(versions) - 1
-	result := snapshot.Entry{UUID: e.uuid, EntryVersion: versions[last]}
-	if last > 0 {
-		result.History = versions[:last]
-	}
-	return result
+	return snapshot.Entry{UUID: e.uuid, EntryVersion: versions[last], History: versions[:last]}
 }

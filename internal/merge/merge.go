@@ -2,8 +2,8 @@
 // decisions of the human and the current time to one merged copy, the questions for the
 // human and the data for the report.
 //
-// It touches no files, no clock and no input or output. The only thing it does not get
-// from Input is the code that makes a Key, and Run does not call that code.
+// It touches no files, no clock and no input or output: Run depends on its Input alone.
+// Only NewKey reads the system, and the caller calls it once for each run of the tool.
 //
 // # Adding a rule
 //
@@ -162,7 +162,7 @@ func newMerger(in Input) *merger {
 		c := &in.Copies[i]
 		c.Snapshot.Root.Walk(func(g *snapshot.Group) {
 			for j := range g.Entries {
-				m.hold(c.Name, m.groupID(g.UUID), &g.Entries[j])
+				m.hold(c, m.groupID(g.UUID), &g.Entries[j])
 			}
 		})
 	}

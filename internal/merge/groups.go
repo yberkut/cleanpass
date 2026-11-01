@@ -112,9 +112,6 @@ func groupContent(g *snapshot.Group) []byte {
 func (m *merger) buildTree() snapshot.Group {
 	childGroups := map[snapshot.UUID][]snapshot.UUID{}
 	for _, id := range slices.SortedFunc(maps.Keys(m.groups), compareUUIDs) {
-		if id == m.root {
-			continue
-		}
 		parent := m.groups[id].parent
 		if _, known := m.groups[parent]; !known {
 			parent = m.root

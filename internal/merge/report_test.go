@@ -43,7 +43,7 @@ func TestEqualCopiesGiveAnEmptyReport(t *testing.T) {
 	}
 }
 
-func TestTheReportToldsTheOutcomeOfAnEntry(t *testing.T) {
+func TestTheReportTellsTheOutcomeOfAnEntry(t *testing.T) {
 	older := version(hours(0), "older")
 	newer := version(hours(1), "newer")
 	longAfter := version(hours(240), "long after")
@@ -66,7 +66,7 @@ func TestTheReportToldsTheOutcomeOfAnEntry(t *testing.T) {
 	}
 }
 
-func TestTheReportToldsWhenTheHumanChoseAVersion(t *testing.T) {
+func TestTheReportTellsWhenTheHumanChoseAVersion(t *testing.T) {
 	in := input(named(twoDivergedCopies(time.Hour)...)...)
 	q, _ := theConflict(t, mustRun(t, in))
 	in.Decisions = []merge.Decision{{Question: q.ID, Choice: 1}}

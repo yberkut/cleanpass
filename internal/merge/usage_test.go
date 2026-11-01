@@ -182,6 +182,69 @@ func TestCopiesWithDifferentRootsGiveOneRootWithAllEntries(t *testing.T) {
 	}
 }
 
+// The same LocationChanged on the same group still has a value to pick for the previous
+// parent, and the pick must not depend on the order of the copies.
+func TestTheSameMoveWithAndWithoutAPreviousParentGivesTheSameResultInAnyOrder(t *testing.T) {
+	without := database(movedEntry(5, nil))
+	with := database(movedEntry(5, &homeID))
+
+	forward := onlyEntry(t, mergeOf(t, without, with).Merged)
+	backward := onlyEntry(t, mergeOf(t, with, without).Merged)
+
+	for name, merged := range map[string]*snapshot.Entry{"forward": forward, "backward": backward} {
+		if merged.PreviousParentGroup == nil || *merged.PreviousParentGroup != homeID {
+			t.Errorf("%s: previous parent = %v, want %s", name, merged.PreviousParentGroup, homeID)
+		}
+	}
+}
+
+func TestAGroupHasTheFieldsOfItsNewestVersion(t *testing.T) {
+	versionOfGroup := func(name string, modified float64) *snapshot.Snapshot {
+		return &snapshot.Snapshot{Root: snapshot.Group{UUID: rootID, Name: "Root", Groups: []snapshot.Group{
+			{UUID: homeID, Name: name, Times: snapshot.Times{LastModification: hours(modified)}},
+		}}}
+	}
+	older, newer := versionOfGroup("older", 1), versionOfGroup("newer", 2)
+
+	for _, order := range [][]*snapshot.Snapshot{{older, newer}, {newer, older}} {
+		if got := mergeOf(t, order...).Merged.Root.Groups[0].Name; got != "newer" {
+			t.Errorf("the group has the name %q, want %q", got, "newer")
+		}
+	}
+}
+
+func TestAGroupLiesWhereItsNewestMoveSaysAndKeepsTheMaximumUsage(t *testing.T) {
+	under := func(parent snapshot.UUID, located float64, access float64, count int64) *snapshot.Snapshot {
+		moved := snapshot.Group{UUID: mailID, Name: "moved", Times: snapshot.Times{
+			LocationChanged: hours(located), LastAccess: hours(access), UsageCount: count,
+		}}
+		home := snapshot.Group{UUID: homeID, Name: "Home"}
+		work := snapshot.Group{UUID: workID, Name: "Work"}
+		if parent == homeID {
+			home.Groups = []snapshot.Group{moved}
+		} else {
+			work.Groups = []snapshot.Group{moved}
+		}
+		return &snapshot.Snapshot{Root: snapshot.Group{UUID: rootID, Name: "Root", Groups: []snapshot.Group{home, work}}}
+	}
+	first, second := under(homeID, 5, 9, 1), under(workID, 8, 2, 7)
+
+	for _, order := range [][]*snapshot.Snapshot{{first, second}, {second, first}} {
+		root := mergeOf(t, order...).Merged.Root
+		home, work := root.Groups[0], root.Groups[1]
+		if len(home.Groups) != 0 || len(work.Groups) != 1 {
+			t.Fatalf("Home has %d groups and Work has %d, want 0 and 1", len(home.Groups), len(work.Groups))
+		}
+		moved := work.Groups[0]
+		if !moved.Times.LocationChanged.Equal(hours(8)) {
+			t.Errorf("location changed = %s, want %s", moved.Times.LocationChanged, hours(8))
+		}
+		if !moved.Times.LastAccess.Equal(hours(9)) || moved.Times.UsageCount != 7 {
+			t.Errorf("last access = %s, usage count = %d, want %s and 7", moved.Times.LastAccess, moved.Times.UsageCount, hours(9))
+		}
+	}
+}
+
 // Group moves come with their own rules. Until then, no group may disappear.
 func TestGroupsInACycleStayInTheTree(t *testing.T) {
 	a, b := snapshot.UUID{15: 0xA1}, snapshot.UUID{15: 0xA2}

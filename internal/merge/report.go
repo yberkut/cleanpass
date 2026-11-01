@@ -145,7 +145,7 @@ func (e *entryState) change(outcome Outcome, copies []Copy) EntryChange {
 	for i := range copies {
 		state := CopyState{Name: copies[i].Name}
 		for j := range e.holdings {
-			if h := &e.holdings[j]; h.copy == state.Name {
+			if h := &e.holdings[j]; h.copy == &copies[i] {
 				state.Holds = true
 				state.Modified = h.main.time()
 				state.Behind = e.isBehind(h)

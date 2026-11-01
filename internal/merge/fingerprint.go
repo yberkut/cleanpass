@@ -157,17 +157,7 @@ func encodeFields(e *encoding, v *snapshot.EntryVersion) {
 }
 
 func compareFields(a, b snapshot.Field) int {
-	return cmp.Or(strings.Compare(a.Key, b.Key), strings.Compare(a.Value, b.Value), compareFlags(a.Protected, b.Protected))
-}
-
-func compareFlags(a, b bool) int {
-	switch {
-	case a == b:
-		return 0
-	case a:
-		return 1
-	}
-	return -1
+	return cmp.Or(strings.Compare(a.Key, b.Key), strings.Compare(a.Value, b.Value))
 }
 
 // contentCustomData gives the items a person or a plugin has set, sorted by key. It leaves
