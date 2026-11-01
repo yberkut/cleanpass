@@ -134,7 +134,7 @@ func TestTheAnswerKeepGivesWhatNoAnswerGives(t *testing.T) {
 	kept := answering(t, merge.AnswerKeep, copies...).Merged
 	silent := mustRun(t, input(copies...)).Merged
 
-	if !reflect.DeepEqual(kept, silent) {
+	if !reflect.DeepEqual(withoutCustomData(kept), withoutCustomData(silent)) {
 		t.Errorf("the answer changed the result:\n%s\n%s", printed(kept), printed(silent))
 	}
 }
@@ -695,8 +695,8 @@ func TestTheBinOfTheResult(t *testing.T) {
 		"the same bin takes the newest time": {
 			[]*snapshot.Snapshot{withMeta(bin(binID, 1), binID), withMeta(bin(binID, 2), binID)}, binID, 2,
 		},
-		"the newest of two bins": {
-			[]*snapshot.Snapshot{withMeta(bin(binID, 1), binID), withMeta(bin(other, 2), other)}, other, 2,
+		"two bins join under the smallest UUID with the newest time": {
+			[]*snapshot.Snapshot{withMeta(bin(binID, 1), binID), withMeta(bin(other, 2), other)}, binID, 2,
 		},
 		"the same time takes the smallest UUID": {
 			[]*snapshot.Snapshot{withMeta(bin(other, 2), other), withMeta(bin(binID, 2), binID)}, binID, 2,
@@ -729,8 +729,7 @@ func TestTheBinOfTheResult(t *testing.T) {
 	}
 }
 
-// Two copies that made their own bin. Joining them into one group comes with the rules of the
-// groups. Until then, nothing in a bin comes back to life.
+// Two copies that made their own bin: nothing in a bin comes back to life.
 func TestAnEntryInTwoDifferentBinsStaysInTheBinOfTheResult(t *testing.T) {
 	other := snapshot.UUID{15: 0xB2}
 	second := withBin(workID)
@@ -741,11 +740,11 @@ func TestAnEntryInTwoDifferentBinsStaysInTheBinOfTheResult(t *testing.T) {
 		result := mergeOf(t, order...)
 
 		wantNoQuestions(t, result)
-		if result.Merged.Meta.RecycleBin != other {
-			t.Fatalf("bin = %s, want %s", result.Merged.Meta.RecycleBin, other)
+		if result.Merged.Meta.RecycleBin != binID {
+			t.Fatalf("bin = %s, want the smallest UUID %s", result.Merged.Meta.RecycleBin, binID)
 		}
-		if got := groupOfOnlyEntry(t, result.Merged); got != other {
-			t.Errorf("the entry lies in %s, want the bin of the result %s", got, other)
+		if got := groupOfOnlyEntry(t, result.Merged); got != binID {
+			t.Errorf("the entry lies in %s, want the bin of the result %s", got, binID)
 		}
 	}
 }

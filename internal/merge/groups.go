@@ -54,6 +54,7 @@ func mergeGroups(m *merger) {
 		m.bins = m.readBins()
 		m.joinGroups()
 		broken = m.breakCycles()
+		m.keepDeletedGroupsInTheBin()
 		if !m.joinSamePaths() {
 			break
 		}
@@ -189,6 +190,17 @@ func (m *merger) breakCycles() []snapshot.UUID {
 	}
 	slices.SortFunc(broken, compareUUIDs)
 	return broken
+}
+
+// keepDeletedGroupsInTheBin moves a group that no copy holds outside the bin straight to the bin
+// if its parent has ended up outside: one copy deleted both, and another one still holds the
+// parent. Nobody wants the group back, and the next merge must still see it as deleted.
+func (m *merger) keepDeletedGroupsInTheBin() {
+	for id, state := range m.groups {
+		if id != m.root && id != m.bins.result && !m.bins.outside[id] && m.bins.outside[state.parent] {
+			state.parent = m.bins.result
+		}
+	}
 }
 
 // joinSamePaths joins each two groups with the same name under the same parent: all paths above

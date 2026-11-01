@@ -245,7 +245,7 @@ func TestAGroupLiesWhereItsNewestMoveSaysAndKeepsTheMaximumUsage(t *testing.T) {
 	}
 }
 
-// Group moves come with their own rules. Until then, no group may disappear.
+// No group may disappear, also when two copies put two groups under each other.
 func TestGroupsInACycleStayInTheTree(t *testing.T) {
 	a, b := snapshot.UUID{15: 0xA1}, snapshot.UUID{15: 0xA2}
 	withChild := func(parent, child snapshot.UUID, located float64) *snapshot.Snapshot {
@@ -335,6 +335,8 @@ func TestEntriesAndGroupsLieInAFixedOrder(t *testing.T) {
 	}
 	first := database(titled(third, "A"), titled(mailID, "B"))
 	other := database(titled(second, "A"))
+	// Only a plain group and the bin can have the same name: other groups would join.
+	first.Meta.RecycleBin = homeID
 	first.Root.Groups = []snapshot.Group{{UUID: workID, Name: "Zeta"}, {UUID: homeID, Name: "Zeta"}, {UUID: snapshot.UUID{15: 0xA3}, Name: "Alpha"}}
 
 	result := mustRun(t, merge.Input{Copies: named(first, other), Now: now, Key: testKey})

@@ -177,15 +177,44 @@ func (m *merger) settleDeletion(e *entryState) bool {
 	return true
 }
 
+// goesByMemory says an earlier answer removes the entry in this merge, so there is no sense in
+// asking anything about its versions.
+func (m *merger) goesByMemory(e *entryState) bool {
+	r, isRecorded := m.records[e.uuid]
+	if !isRecorded {
+		return false
+	}
+	answer, remembered := m.memory.deletionAnswer(m.deletion(e, r))
+	return remembered && answer == AnswerDelete
+}
+
 // rememberDeletion stores an answer. A rejection holds for the deletions the human knew about. An
 // acceptance holds for the versions the human knew about: an old copy may hold any of them, so
 // the date is that of the newest version, or of the deletion if that is newer.
 func (m *merger) rememberDeletion(e *entryState, d Deletion, choice int) {
 	if choice == AnswerDelete {
-		m.remember(memoryAccepted, e.uuid.String(), memoryDate(later(d.Deleted, e.ruleMain.key.time())))
-	} else {
-		m.remember(memoryRejected, e.uuid.String(), memoryDate(d.Deleted))
+		m.remember(memoryAccepted, e.uuid.String(), memoryDate(later(d.Deleted, e.main().key.time())))
+		return
 	}
+	through := d.Deleted
+	if e.recycled {
+		through = later(through, m.timeInTheBin(e))
+	}
+	m.remember(memoryRejected, e.uuid.String(), memoryDate(through))
+}
+
+// timeInTheBin gives the time of the move to the bin that the result itself will show for an entry
+// that stays there. It can be newer than the time of any copy that holds the entry, because a copy
+// without the entry can have moved a group around it.
+func (m *merger) timeInTheBin(e *entryState) time.Time {
+	since := e.result().Times.LocationChanged
+	for id := e.group; id != m.bins.result && id != m.root; id = m.groups[id].parent {
+		if m.groups[id] == nil {
+			break
+		}
+		since = later(since, m.groups[id].data.Times.LocationChanged)
+	}
+	return since
 }
 
 // deletion makes the data of the question. It comes from the copies alone, so the question

@@ -23,7 +23,9 @@ func mergeVersions(m *merger) {
 	for _, e := range m.sortedEntries() {
 		e.join(m.in.Key)
 		e.ruleMain = e.main()
-		m.settle(e)
+		if !m.goesByMemory(e) {
+			m.settle(e)
+		}
 	}
 }
 

@@ -143,14 +143,13 @@ func (m *merger) askAboutVersions(e *entryState, detail Conflict, asked []versio
 	if !answered {
 		return false
 	}
-	replacedBy := slices.Clone(e.replacingMain())
-	main := e.main().key.time()
+	main, replacing := e.main().key.time(), e.replacingMain()
 	if e.choose(answers[choice], m.in.Key, m.in.Now) {
 		return true
 	}
-	if len(replacedBy) > 0 {
+	if len(replacing) > 0 {
 		// No new version closes the matter, so the same copy would raise the same question.
-		newest := slices.MaxFunc(replacedBy, compareKeys).time()
+		newest := slices.MaxFunc(replacing, compareKeys).time()
 		m.remember(memoryReplaced, e.uuid.String(), memoryDate(main), memoryDate(newest))
 	}
 	return false

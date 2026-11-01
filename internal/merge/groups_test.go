@@ -307,6 +307,23 @@ func TestAPlainGroupNamedAsTheBinStaysAPlainGroup(t *testing.T) {
 	}
 }
 
+// One copy deleted the group with a group inside it, and another copy still holds the outer one
+// only. The inner one stays deleted, also for a next merge.
+func TestAGroupOnlyInTheBinStaysInTheBinWhenItsParentStaysOutside(t *testing.T) {
+	inner := snapshot.UUID{15: 0xD1}
+	deleted := binTree(node(groupA, "Bin", 1, node(groupB, "Outer", 5, node(inner, "Inner", 5))))
+	held := tree(node(groupB, "Outer", 1))
+	held.Meta.RecycleBin = snapshot.UUID{}
+
+	inAnyOrder(t, []*snapshot.Snapshot{deleted, held}, func(t *testing.T, merged *snapshot.Snapshot) {
+		wantShape(t, merged, "/a1", "/a1/d1", "/a2")
+
+		// A third copy holds the inner group outside the bin, so it comes back there.
+		again := mergeOf(t, merged, tree(node(groupB, "Outer", 1), node(inner, "Inner", 1))).Merged
+		wantShape(t, again, "/a1", "/a2", "/d1")
+	})
+}
+
 // Under a joined bin, a group moved to the bin in another copy joins by its path too.
 func TestGroupsWithOnePathInTheBinJoin(t *testing.T) {
 	first := binTree(node(groupA, "Bin", 1, node(snapshot.UUID{15: 0xD1}, "Old", 1)))
