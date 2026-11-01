@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -23,17 +22,13 @@ const (
 	secretMarker = "SECRET-MARKER"
 )
 
-var deletedObjects = regexp.MustCompile(`(?s)<DeletedObjects>.*</DeletedObjects>`)
-
-// mergeableXML is the rich fixture without its deletion record. The Merge Engine keeps such
-// records from ticket #6 on. TestMergeNeverPublishesAResultThatLost covers them either way.
+// mergeableXML is the rich fixture with one change.
 //
 // In the fixture the older version of Пошта moved later than its main version, and no save of
 // KeePassXC gives that. The engine takes the place of the newest move for the main version, so
 // the export would differ there. Here the versions lie in the order KeePassXC leaves them.
 func mergeableXML() string {
-	xml := deletedObjects.ReplaceAllString(testkit.RichXML(), "")
-	return strings.Replace(xml, "<LocationChanged>2026-02-01T10:00:03Z<", "<LocationChanged>2026-02-01T09:00:03Z<", 1)
+	return strings.Replace(testkit.RichXML(), "<LocationChanged>2026-02-01T10:00:03Z<", "<LocationChanged>2026-02-01T09:00:03Z<", 1)
 }
 
 // replaced changes one text of the fixture and fails when that text is not there.
@@ -406,7 +401,13 @@ func TestMergeRunsTheLineThatStatusPrints(t *testing.T) {
 			if tc.withKey {
 				keyFile = testkit.NewKeyFile(t, filepath.Join(dir, keyName), 1)
 			}
-			a := testkit.DB{Path: filepath.Join(dir, tc.first), Password: testkit.Password, KeyFile: keyFile}.Import(t, mergeableXML())
+			xmlOfFirst := mergeableXML()
+			if tc.withKey {
+				// The newest copy gives the keys. A date after the two edits below makes that
+				// the copy with the key file, whichever second they fall in.
+				xmlOfFirst = replaced(t, xmlOfFirst, "<LastModificationTime>2026-03-01T10:00:04Z<", "<LastModificationTime>2099-03-01T10:00:04Z<")
+			}
+			a := testkit.DB{Path: filepath.Join(dir, tc.first), Password: testkit.Password, KeyFile: keyFile}.Import(t, xmlOfFirst)
 			b := testkit.DB{Path: filepath.Join(dir, tc.second), Password: testkit.Password}.Import(t, mergeableXML())
 			a.CLI(t, "edit", "--notes", "зміна в першій копії", "/Кошик/У кошику")
 			b.CLI(t, "edit", "--notes", "зміна в другій копії", richWorkEntry)
@@ -440,6 +441,36 @@ func TestMergeRunsTheLineThatStatusPrints(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// One copy holds an older version and has moved the entry to the recycle bin. With no answer
+// the entry stays outside the bin, so that older version has no place of its own: the engine
+// gives it no LocationChanged. The file must then have no such element, and the real
+// KeePassXC must still read the version.
+func TestMergeKeepsAVersionWithoutALocationTime(t *testing.T) {
+	const onlyInTheBin = secretMarker + "-лише-в-кошику"
+	dir := t.TempDir()
+	withOlderVersion := replaced(t, mergeableXML(),
+		`<AutoType><Enabled>False</Enabled><DataTransferObfuscation>0</DataTransferObfuscation></AutoType><History/>`,
+		`<AutoType><Enabled>False</Enabled><DataTransferObfuscation>0</DataTransferObfuscation></AutoType><History><Entry><UUID>AAAAAAAAAAAAAAAAAAABAQ==</UUID><Times><LastModificationTime>2026-02-15T10:00:00Z</LastModificationTime><LocationChanged>2026-02-01T09:00:05Z</LocationChanged></Times><String><Key>Title</Key><Value>Друге</Value></String><String><Key>Password</Key><Value ProtectInMemory="True">`+onlyInTheBin+`</Value></String></Entry></History>`)
+	inBin := testkit.DB{Path: filepath.Join(dir, "in-bin.kdbx"), Password: testkit.Password}.Import(t, withOlderVersion)
+	inBin.CLI(t, "rm", richWorkEntry)
+	outside := testkit.DB{Path: filepath.Join(dir, "outside.kdbx"), Password: testkit.Password}.Import(t, mergeableXML())
+	result := testkit.DB{Path: filepath.Join(dir, "new.kdbx"), Password: testkit.Password}
+
+	wantMerged(t, testkit.Run(t, passwordLines(2), "merge", inBin.Path, outside.Path, "--output", result.Path))
+
+	if count := result.VersionsWithoutLocationTime(t); count != 1 {
+		t.Errorf("%d versions have no LocationChanged in the file, want this one", count)
+	}
+	if export := strings.Join(result.ExportLines(t), "\n"); !strings.Contains(export, onlyInTheBin) {
+		t.Error("KeePassXC does not see the older version")
+	}
+	// A save by KeePassXC goes through its reader and writer. The version must get through.
+	result.Resave(t)
+	if export := strings.Join(result.ExportLines(t), "\n"); !strings.Contains(export, onlyInTheBin) {
+		t.Error("the older version is gone after a save by KeePassXC")
 	}
 }
 
@@ -591,8 +622,8 @@ func TestMergeStopsAtHeaderDataItCannotKeep(t *testing.T) {
 }
 
 // The engine may yet lack something for these inputs. A result must then not appear, and when
-// it appears, it must hold the data. Tickets #6 and #8 turn the stops into results, so the
-// test keeps its worth before and after them.
+// it appears, it must hold the data. Ticket #8 turns the stops into results, so the test keeps
+// its worth before and after it.
 func TestMergeNeverPublishesAResultThatLost(t *testing.T) {
 	olderIcon := `<CustomIcons><Icon><UUID>AAAAAAAAAAAAAAAAAAAJAg==</UUID><Data>iVBORw0KGgo=</Data><Name>old icon</Name><LastModificationTime>2026-02-04T10:00:00Z</LastModificationTime></Icon></CustomIcons>`
 	for name, tc := range map[string]struct {
@@ -600,15 +631,14 @@ func TestMergeNeverPublishesAResultThatLost(t *testing.T) {
 		// inExport is what KeePassXC must show in a result.
 		inExport string
 	}{
-		"a deletion record": {testkit.RichXML(), testkit.RichXML(), "AAAAAAAAAAAAAAAAAAAHdw=="},
 		"a custom icon only the older copy has": {
-			replaced(t, deletedObjects.ReplaceAllString(testkit.RichXML(), ""), "<CustomIcons>", olderIcon+"<CustomIcons>"),
-			replaced(t, deletedObjects.ReplaceAllString(testkit.RichXML(), ""), "<SettingsChanged>2026-02-06T10:00:00Z<", "<SettingsChanged>2026-02-07T10:00:00Z<"),
+			replaced(t, testkit.RichXML(), "<CustomIcons>", olderIcon+"<CustomIcons>"),
+			replaced(t, testkit.RichXML(), "<SettingsChanged>2026-02-06T10:00:00Z<", "<SettingsChanged>2026-02-07T10:00:00Z<"),
 			"AAAAAAAAAAAAAAAAAAAJAg==",
 		},
 		"custom data only the older copy has": {
-			replaced(t, deletedObjects.ReplaceAllString(testkit.RichXML(), ""), "<Key>meta-custom-key</Key>", "<Key>older-only-key</Key>"),
-			replaced(t, deletedObjects.ReplaceAllString(testkit.RichXML(), ""), "<SettingsChanged>2026-02-06T10:00:00Z<", "<SettingsChanged>2026-02-07T10:00:00Z<"),
+			replaced(t, testkit.RichXML(), "<Key>meta-custom-key</Key>", "<Key>older-only-key</Key>"),
+			replaced(t, testkit.RichXML(), "<SettingsChanged>2026-02-06T10:00:00Z<", "<SettingsChanged>2026-02-07T10:00:00Z<"),
 			"older-only-key",
 		},
 	} {
@@ -736,7 +766,6 @@ func TestAKDBX3CopyIsUpgraded(t *testing.T) {
 func TestATimeWithPartsOfASecondDoesNotStopTheMerge(t *testing.T) {
 	dir := t.TempDir()
 	xml := strings.ReplaceAll(testkit.PlainXML, "2026-03-15T10:00:00Z", "2026-03-15T10:00:00.5Z")
-	xml = deletedObjects.ReplaceAllString(xml, "")
 	source := testkit.RawFile{Major: 3, Minor: 1, XML: xml}.Write(t, filepath.Join(dir, "a.kdbx"), testkit.Password)
 	result := testkit.DB{Path: filepath.Join(dir, "new.kdbx"), Password: testkit.Password}
 

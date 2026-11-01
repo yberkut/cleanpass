@@ -170,16 +170,10 @@ func (o openedCopies) newest() *openedCopy {
 	return best
 }
 
-// The errors of the checks. They reach only this file.
-type (
-	// readBackError means the written file does not hold what it should.
-	readBackError struct{ place string }
-	// lossesError means the Loss Audit found something missing in the written file.
-	lossesError struct{ losses []lossaudit.Loss }
-)
+// lossesError means the Loss Audit found something missing in the written file.
+type lossesError struct{ losses []lossaudit.Loss }
 
-func (e *readBackError) Error() string { return "read back differs at " + e.place }
-func (e *lossesError) Error() string   { return "the audit found losses" }
+func (e *lossesError) Error() string { return "the audit found losses" }
 
 // writeResult runs the write protocol. The checks look at what the file really holds, not at
 // what the merge gave.
@@ -196,16 +190,9 @@ func writeResult(env Env, output string, opened openedCopies, merged *snapshot.S
 		Target: output,
 		Inputs: inputs,
 		Encode: func(w io.Writer) error { return gateway.Write(w, merged, format, keysFrom.keys) },
-		ReadBack: func(temp string) error {
-			got, err := gateway.Open(temp, keysFrom.keys)
-			if err != nil {
-				return err
-			}
-			if place := compareWritten(merged, got, format); place != "" {
-				return &readBackError{place: place}
-			}
-			written = got
-			return nil
+		ReadBack: func(temp string) (err error) {
+			written, err = gateway.ReadBack(temp, merged, format, keysFrom.keys)
+			return err
 		},
 		Audit: func() error {
 			if losses := lossaudit.Audit(lossaudit.Input{Copies: sources, Result: written}); len(losses) > 0 {
@@ -215,17 +202,6 @@ func writeResult(env Env, output string, opened openedCopies, merged *snapshot.S
 		},
 		Judge: outsideCheck(env),
 	})
-}
-
-// compareWritten names what differs between the expected result and the file that came back.
-func compareWritten(want, got *snapshot.Snapshot, format snapshot.Format) string {
-	if got.Format != format {
-		return "Format"
-	}
-	if len(got.FieldLosses) > 0 {
-		return "FieldLosses"
-	}
-	return snapshot.Difference(want, got)
 }
 
 // outsideCheck is step 6 of the protocol, the place of the KeePassXC Judge. No outside program
@@ -250,7 +226,7 @@ func reportWriteError(env Env, output string, err error) int {
 // describeWriteError gives the text for the human about an error of the write protocol.
 func describeWriteError(output string, err error) string {
 	var changed *safewriter.InputChangedError
-	var readBack *readBackError
+	var readBack *gateway.ReadBackError
 	switch {
 	case errors.Is(err, safewriter.ErrTargetExists):
 		return text.MergeTargetExists(output)
@@ -265,7 +241,7 @@ func describeWriteError(output string, err error) string {
 		}
 		return message
 	case errors.As(err, &readBack):
-		return text.MergeReadBackFailed(readBack.place)
+		return text.MergeReadBackFailed(readBack.Place)
 	}
 	return text.MergeWriteFailed(output)
 }

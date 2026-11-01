@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/tobischo/gokeepasslib/v3"
 )
 
 // serviceItems are the custom data items KeePassXC renews itself: _LAST_MODIFIED comes from
@@ -70,6 +72,34 @@ func (db DB) Randoms(t testing.TB) Randoms {
 		KDFSalt:        bytes.Clone(headers.KdfParameters.Salt[:]),
 		InnerStreamKey: bytes.Clone(lib.Content.InnerHeader.InnerRandomStreamKey),
 	}
+}
+
+// VersionsWithoutLocationTime counts the versions of entries in the file, main and older ones,
+// that have no LocationChanged element.
+func (db DB) VersionsWithoutLocationTime(t testing.TB) int {
+	t.Helper()
+	lib := db.openWithLibrary(t)
+	count := 0
+	var countEntries func(entries []gokeepasslib.Entry)
+	countEntries = func(entries []gokeepasslib.Entry) {
+		for i := range entries {
+			if entries[i].Times.LocationChanged == nil {
+				count++
+			}
+			for j := range entries[i].Histories {
+				countEntries(entries[i].Histories[j].Entries)
+			}
+		}
+	}
+	var countGroups func(groups []gokeepasslib.Group)
+	countGroups = func(groups []gokeepasslib.Group) {
+		for i := range groups {
+			countEntries(groups[i].Entries)
+			countGroups(groups[i].Groups)
+		}
+	}
+	countGroups(lib.Content.Root.Groups)
+	return count
 }
 
 // AttachmentsInFile counts the attachments the file itself stores. The same bytes under two

@@ -99,6 +99,31 @@ func Write(out io.Writer, snap *snapshot.Snapshot, format snapshot.Format, creds
 	return gokeepasslib.NewEncoder(out).Encode(db)
 }
 
+// ReadBackError means a written file does not hold what it should. Place names a part of a
+// database, for example Root.Entries[0].Fields[1].Value, and never a value.
+type ReadBackError struct{ Place string }
+
+func (e *ReadBackError) Error() string { return "the written file differs at " + e.Place }
+
+// ReadBack reads a written file and compares it with what it should hold. It gives what the
+// file really holds, so that the next check looks at the file and not at a promise.
+func ReadBack(path string, want *snapshot.Snapshot, format snapshot.Format, creds Credentials) (*snapshot.Snapshot, error) {
+	got, err := Open(path, creds)
+	if err != nil {
+		return nil, err
+	}
+	if got.Format != format {
+		return nil, &ReadBackError{Place: "Format"}
+	}
+	if len(got.FieldLosses) > 0 {
+		return nil, &ReadBackError{Place: "FieldLosses"}
+	}
+	if place := snapshot.Difference(want, got); place != "" {
+		return nil, &ReadBackError{Place: place}
+	}
+	return got, nil
+}
+
 // freshen makes the random values KeePassXC also makes on every save. A new database of the
 // library has its own, but what a file holds must not depend on the defaults of the library.
 func freshen(db *gokeepasslib.Database) error {

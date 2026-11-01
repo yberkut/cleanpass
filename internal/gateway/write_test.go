@@ -2,6 +2,7 @@ package gateway_test
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tobischo/gokeepasslib/v3"
 
@@ -321,6 +323,142 @@ func TestEveryFieldOfTheLibraryHasAPlaceInASnapshot(t *testing.T) {
 		}
 		if got := strings.Join(names, " "); got != tc.fields {
 			t.Errorf("%s has the fields\n%s\nwant\n%s", kind.Name(), got, tc.fields)
+		}
+	}
+}
+
+func TestReadBackGivesWhatTheFileHolds(t *testing.T) {
+	want := testkit.FullSnapshot()
+	written := write(t, want, testkit.Password)
+	creds := gateway.Credentials{Password: []byte(written.Password)}
+
+	got, err := gateway.ReadBack(written.Path, want, gateway.OutputFormat(want.Format), creds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if place := snapshot.Difference(want, got); place != "" {
+		t.Errorf("it gave something else at %s", place)
+	}
+}
+
+func TestReadBackNamesThePlaceThatDiffers(t *testing.T) {
+	expected := testkit.FullSnapshot()
+	written := write(t, expected, testkit.Password)
+	creds := gateway.Credentials{Password: []byte(written.Password)}
+	format := gateway.OutputFormat(expected.Format)
+	otherCipher := format
+	otherCipher.Cipher = snapshot.CipherTwofish
+	otherCost := format
+	otherCost.KDF.Rounds++
+
+	for name, tc := range map[string]struct {
+		change func(*snapshot.Snapshot)
+		format snapshot.Format
+		place  string
+	}{
+		"a value of a field": {
+			change: func(s *snapshot.Snapshot) { s.Root.Entries[0].History[0].Fields[1].Value = "SECRET-MARKER-other" },
+			format: format,
+			place:  "Fields[1].Value",
+		},
+		"a deletion record": {
+			change: func(s *snapshot.Snapshot) { s.Deletions = nil },
+			format: format,
+			place:  "Deletions",
+		},
+		"the bytes of an attachment": {
+			change: func(s *snapshot.Snapshot) { clear(s.Attachments) },
+			format: format,
+			place:  "Attachments",
+		},
+		"the cipher": {change: func(*snapshot.Snapshot) {}, format: otherCipher, place: "Format"},
+		"the KDF":    {change: func(*snapshot.Snapshot) {}, format: otherCost, place: "Format"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			want := testkit.FullSnapshot()
+			tc.change(want)
+
+			_, err := gateway.ReadBack(written.Path, want, tc.format, creds)
+
+			var differs *gateway.ReadBackError
+			if !errors.As(err, &differs) {
+				t.Fatalf("the error is %v", err)
+			}
+			if !strings.Contains(differs.Place, tc.place) {
+				t.Errorf("the place is %q, want %q", differs.Place, tc.place)
+			}
+			if strings.Contains(err.Error(), "SECRET-MARKER") {
+				t.Errorf("the error names a value: %v", err)
+			}
+		})
+	}
+}
+
+// The field guard also looks at the file that was just written. Data that a next save would
+// drop must not get out in a result.
+func TestReadBackLetsNoFieldLossThrough(t *testing.T) {
+	file := testkit.RawFile{Major: 4, Minor: 1, XML: strings.Replace(testkit.PlainXML, "</Meta>", "<Future>x</Future></Meta>", 1)}.
+		Write(t, filepath.Join(t.TempDir(), "a.kdbx"), testkit.Password)
+	creds := gateway.Credentials{Password: []byte(file.Password)}
+	opened, err := gateway.Open(file.Path, creds)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = gateway.ReadBack(file.Path, opened, opened.Format, creds)
+
+	var differs *gateway.ReadBackError
+	if !errors.As(err, &differs) || differs.Place != "FieldLosses" {
+		t.Errorf("the error is %v", err)
+	}
+}
+
+func TestReadBackWithWrongKeysFails(t *testing.T) {
+	want := testkit.FullSnapshot()
+	written := write(t, want, testkit.Password)
+	_, err := gateway.ReadBack(written.Path, want, gateway.OutputFormat(want.Format), gateway.Credentials{Password: []byte("другий")})
+	if !errors.Is(err, gateway.ErrWrongCredentials) {
+		t.Errorf("the error is %v", err)
+	}
+}
+
+// A time a version does not have stays out of the file, and the real KeePassXC reads the
+// version all the same. The Merge Engine gives such versions: one with no place of its own
+// has a zero LocationChanged.
+func TestAZeroTimeStaysOutOfTheFile(t *testing.T) {
+	for name, clearTime := range map[string]func(*snapshot.Times){
+		"LocationChanged":  func(times *snapshot.Times) { times.LocationChanged = time.Time{} },
+		"LastModification": func(times *snapshot.Times) { times.LastModification = time.Time{} },
+		"Creation":         func(times *snapshot.Times) { times.Creation = time.Time{} },
+		"LastAccess":       func(times *snapshot.Times) { times.LastAccess = time.Time{} },
+		"Expiry":           func(times *snapshot.Times) { times.Expiry = time.Time{} },
+		"all of them":      func(times *snapshot.Times) { *times = snapshot.Times{} },
+	} {
+		for place, older := range map[string]bool{"an older version": true, "the main version": false} {
+			t.Run(name+" of "+place, func(t *testing.T) {
+				want := testkit.FullSnapshot()
+				version := &want.Root.Entries[0].EntryVersion
+				if older {
+					version = &want.Root.Entries[0].History[0]
+				}
+				clearTime(&version.Times)
+
+				written := write(t, want, testkit.Password)
+
+				got, err := gateway.Open(written.Path, gateway.Credentials{Password: []byte(written.Password)})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if diff := snapshot.Difference(want, got); diff != "" {
+					t.Errorf("the file holds something else at %s", diff)
+				}
+				export := strings.Join(written.ExportLines(t), "\n")
+				for _, secret := range []string{"SECRET-MARKER-full-new", "SECRET-MARKER-full-old"} {
+					if !strings.Contains(export, secret) {
+						t.Errorf("KeePassXC does not see %s", secret)
+					}
+				}
+			})
 		}
 	}
 }
