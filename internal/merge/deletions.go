@@ -10,7 +10,10 @@ import (
 	"github.com/yberkut/cleanpass/internal/snapshot"
 )
 
-func init() { addRule(phaseDeletions, mergeDeletions) }
+func init() {
+	addRule(phaseMemory, func(m *merger) { m.records = m.joinRecords() })
+	addRule(phaseDeletions, mergeDeletions)
+}
 
 // The answers to a question about a deletion.
 const (
@@ -72,6 +75,8 @@ const (
 type DeletionChange struct {
 	Deletion
 	Outcome DeletionOutcome
+	// Remembered says an answer of an earlier merge decided, so nobody was asked this time.
+	Remembered bool
 }
 
 func (c DeletionChange) sortKey() string { return deletionPrefix + c.Entry.String() }
@@ -81,16 +86,15 @@ func (c DeletionChange) sortKey() string { return deletionPrefix + c.Entry.Strin
 //
 // Every record stays in the result, also next to an entry the human keeps. So the next merge
 // asks again until the human answers, and an old copy cannot bring a deleted entry back as a
-// new one. A group raises no question and never goes away: the merge keeps every group.
+// new one. An answer goes to the memory, so an old copy does not raise the same question again.
+// A group raises no question and never goes away: the merge keeps every group.
 func mergeDeletions(m *merger) {
-	m.bins = m.readBins()
-	records := m.joinRecords()
-	for _, id := range slices.SortedFunc(maps.Keys(records), compareUUIDs) {
-		m.out.Deletions = append(m.out.Deletions, snapshot.Deletion{UUID: id, Time: records[id].time})
+	for _, id := range slices.SortedFunc(maps.Keys(m.records), compareUUIDs) {
+		m.out.Deletions = append(m.out.Deletions, snapshot.Deletion{UUID: id, Time: m.records[id].time})
 	}
 	asked := map[snapshot.UUID]bool{}
 	for _, e := range m.sortedEntries() {
-		if m.settleDeletion(e, records) {
+		if m.settleDeletion(e) {
 			asked[e.uuid] = true
 		}
 	}
@@ -128,8 +132,8 @@ func (m *merger) joinRecords() map[snapshot.UUID]record {
 
 // settleDeletion asks about the entry if a record stands against it, or if a copy holds it in
 // the recycle bin and another one outside, and applies the answer. It says whether it asked.
-func (m *merger) settleDeletion(e *entryState, records map[snapshot.UUID]record) bool {
-	r, isRecorded := records[e.uuid]
+func (m *merger) settleDeletion(e *entryState) bool {
+	r, isRecorded := m.records[e.uuid]
 	inBin, outside := m.bins.count(e)
 	hasBoth := inBin > 0 && outside > 0
 	e.recycled = outside == 0
@@ -137,11 +141,18 @@ func (m *merger) settleDeletion(e *entryState, records map[snapshot.UUID]record)
 		return false
 	}
 	detail := m.deletion(e, r)
-	choice, answered := m.ask(Question{
-		ID:      QuestionID(deletionPrefix + e.uuid.String()),
-		Choices: 2,
-		Detail:  detail,
-	})
+	choice, answered := m.memory.deletionAnswer(detail)
+	remembered := answered
+	if !remembered {
+		choice, answered = m.ask(Question{
+			ID:      QuestionID(deletionPrefix + e.uuid.String()),
+			Choices: 2,
+			Detail:  detail,
+		})
+		if answered {
+			m.rememberDeletion(e, detail, choice)
+		}
+	}
 	outcome := DeletionOpen
 	if answered {
 		outcome = DeletionRejected
@@ -150,6 +161,9 @@ func (m *merger) settleDeletion(e *entryState, records map[snapshot.UUID]record)
 	case choice == AnswerDelete && isRecorded:
 		outcome = DeletionApplied
 		delete(m.entries, e.uuid)
+		if remembered {
+			m.rememberedDeletions = append(m.rememberedDeletions, e.uuid)
+		}
 	case choice == AnswerDelete:
 		// No copy has removed the entry. The answer goes as far as the deletion went: the
 		// entry lies in the bin with all its versions, and the bin is for the human to empty.
@@ -159,8 +173,48 @@ func (m *merger) settleDeletion(e *entryState, records map[snapshot.UUID]record)
 	case hasBoth:
 		m.placeBy(e, false)
 	}
-	m.tell(DeletionChange{Deletion: detail, Outcome: outcome})
+	m.tell(DeletionChange{Deletion: detail, Outcome: outcome, Remembered: remembered})
 	return true
+}
+
+// goesByMemory says an earlier answer removes the entry in this merge, so there is no sense in
+// asking anything about its versions.
+func (m *merger) goesByMemory(e *entryState) bool {
+	r, isRecorded := m.records[e.uuid]
+	if !isRecorded {
+		return false
+	}
+	answer, remembered := m.memory.deletionAnswer(m.deletion(e, r))
+	return remembered && answer == AnswerDelete
+}
+
+// rememberDeletion stores an answer. A rejection holds for the deletions the human knew about. An
+// acceptance holds for the versions the human knew about: an old copy may hold any of them, so
+// the date is that of the newest version, or of the deletion if that is newer.
+func (m *merger) rememberDeletion(e *entryState, d Deletion, choice int) {
+	if choice == AnswerDelete {
+		m.remember(memoryAccepted, e.uuid.String(), memoryDate(later(d.Deleted, e.main().key.time())))
+		return
+	}
+	through := d.Deleted
+	if e.recycled {
+		through = later(through, m.timeInTheBin(e))
+	}
+	m.remember(memoryRejected, e.uuid.String(), memoryDate(through))
+}
+
+// timeInTheBin gives the time of the move to the bin that the result itself will show for an entry
+// that stays there. It can be newer than the time of any copy that holds the entry, because a copy
+// without the entry can have moved a group around it.
+func (m *merger) timeInTheBin(e *entryState) time.Time {
+	since := e.result().Times.LocationChanged
+	for id := e.group; id != m.bins.result && id != m.root; id = m.groups[id].parent {
+		if m.groups[id] == nil {
+			break
+		}
+		since = later(since, m.groups[id].data.Times.LocationChanged)
+	}
+	return since
 }
 
 // deletion makes the data of the question. It comes from the copies alone, so the question

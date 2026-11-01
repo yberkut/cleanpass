@@ -39,10 +39,12 @@ func snapshotsOf(copies []merge.Copy) []*snapshot.Snapshot {
 	return result
 }
 
-// mergeWithoutDecisions gives the copies and the result of the engine on a new scenario.
-func mergeWithoutDecisions(t *rapid.T) (copies []*snapshot.Snapshot, merged *snapshot.Snapshot) {
+// mergeWithoutDecisions gives the copies and the result of the engine on a new scenario, with
+// the groups the engine has joined. A join is no decision of the human, so it needs no answer.
+func mergeWithoutDecisions(t *rapid.T) (copies []*snapshot.Snapshot, merged *snapshot.Snapshot, groups map[snapshot.UUID]snapshot.UUID) {
 	s := mergetest.Scenarios().Draw(t, "scenario")
-	return snapshotsOf(s.Copies), runEngine(t, merge.Input{Copies: s.Copies, Now: s.Now, Key: drawKey(t)}).Merged
+	result := runEngine(t, merge.Input{Copies: s.Copies, Now: s.Now, Key: drawKey(t)})
+	return snapshotsOf(s.Copies), result.Merged, result.MergedGroups
 }
 
 // TestPropertyNoLoss is the property of the spec. Each version of each entry of the input is
@@ -50,6 +52,7 @@ func mergeWithoutDecisions(t *rapid.T) (copies []*snapshot.Snapshot, merged *sna
 //
 // The answers here are about conflicts only, because they can make no data leave. The
 // decisions that can reach this audit through Allowed come with the tickets that connect it.
+// Only the groups that joined by their path may leave their UUID.
 func TestPropertyNoLoss(t *testing.T) {
 	answered := 0
 	rapid.Check(t, func(t *rapid.T) {
@@ -63,9 +66,10 @@ func TestPropertyNoLoss(t *testing.T) {
 			}
 		}
 
-		merged := runEngine(t, in).Merged
+		result := runEngine(t, in)
 
-		if losses := lossaudit.Audit(lossaudit.Input{Copies: snapshotsOf(s.Copies), Result: merged}); len(losses) != 0 {
+		allowed := lossaudit.Allowed{MergedGroups: result.MergedGroups}
+		if losses := lossaudit.Audit(lossaudit.Input{Copies: snapshotsOf(s.Copies), Result: result.Merged, Allowed: allowed}); len(losses) != 0 {
 			t.Errorf("the audit found losses: %+v", losses)
 		}
 	})
@@ -208,9 +212,11 @@ var corruptions = []corruption{
 		return true
 	}},
 	{"custom data gone", lossaudit.CustomDataLost, func(t *rapid.T, s *snapshot.Snapshot) bool {
+		// What the generator sets. What the merge itself adds comes from no copy, so it can get lost
+		// without a loss of data, and TestPropertyNoLossWithTheMemory of the engine covers it.
 		var keys []string
 		for i := range s.Meta.CustomData {
-			if !s.Meta.CustomData[i].IsService() {
+			if strings.HasPrefix(s.Meta.CustomData[i].Key, "plugin.") {
 				keys = append(keys, s.Meta.CustomData[i].Key)
 			}
 		}
@@ -227,15 +233,15 @@ var corruptions = []corruption{
 	}},
 }
 
-// reachedToday lists the corruptions the generator must reach. The others wait for moves of
-// tickets #6 and #8: deletions, custom icons, custom data. Their example tests are in this
-// package, and these corruptions start to run as soon as the moves exist.
+// reachedToday lists the corruptions the generator must reach: all of them.
 var reachedToday = []string{
 	"a history version gone", "a main version gone", "an entry gone",
 	"a field of a history version changed", "a field of a history version gone",
 	"the time of a version changed", "a reference to an attachment gone",
 	"the bytes of an attachment gone", "the bytes of an attachment changed",
-	"a group gone", "the notes of a group changed", "the name of the database changed",
+	"a deletion record gone", "a deletion record older",
+	"a group gone", "the notes of a group changed",
+	"a custom icon gone", "custom data gone", "the name of the database changed",
 }
 
 func anyEntry(*snapshot.Entry) bool { return true }
@@ -294,7 +300,8 @@ func hasKind(losses []lossaudit.Loss, kind lossaudit.Kind) bool {
 func TestPropertyACorruptedResultIsCaught(t *testing.T) {
 	applied := map[string]int{}
 	rapid.Check(t, func(t *rapid.T) {
-		copies, merged := mergeWithoutDecisions(t)
+		copies, merged, groups := mergeWithoutDecisions(t)
+		allowed := lossaudit.Allowed{MergedGroups: groups}
 		for _, c := range corruptions {
 			corrupted := mergetest.Clone(merged)
 			if !c.apply(t, corrupted) {
@@ -302,7 +309,7 @@ func TestPropertyACorruptedResultIsCaught(t *testing.T) {
 			}
 			applied[c.name]++
 
-			losses := lossaudit.Audit(lossaudit.Input{Copies: copies, Result: corrupted})
+			losses := lossaudit.Audit(lossaudit.Input{Copies: copies, Result: corrupted, Allowed: allowed})
 
 			if !hasKind(losses, c.want) {
 				t.Errorf("%s: the audit gave %+v, want a loss of kind %d", c.name, losses, c.want)
@@ -312,7 +319,7 @@ func TestPropertyACorruptedResultIsCaught(t *testing.T) {
 			}
 			backward := slices.Clone(copies)
 			slices.Reverse(backward)
-			if other := lossaudit.Audit(lossaudit.Input{Copies: backward, Result: corrupted}); !slices.Equal(other, losses) {
+			if other := lossaudit.Audit(lossaudit.Input{Copies: backward, Result: corrupted, Allowed: allowed}); !slices.Equal(other, losses) {
 				t.Errorf("%s: the order of the copies changed the list:\n%+v\n%+v", c.name, other, losses)
 			}
 		}
@@ -352,7 +359,7 @@ func removeEntry(s *snapshot.Snapshot, id snapshot.UUID) (gone snapshot.Entry) {
 // and no decision about another entry helps.
 func TestPropertyOnlyADecisionAboutThatEntryLetsItGo(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
-		copies, merged := mergeWithoutDecisions(t)
+		copies, merged, groups := mergeWithoutDecisions(t)
 		ids := drawEntries(t, merged)
 		if len(ids) == 0 {
 			t.Skip("the result has no entries")
@@ -361,7 +368,7 @@ func TestPropertyOnlyADecisionAboutThatEntryLetsItGo(t *testing.T) {
 		removeEntry(merged, gone)
 
 		allowed := func(ids ...snapshot.UUID) []lossaudit.Loss {
-			return lossaudit.Audit(lossaudit.Input{Copies: copies, Result: merged, Allowed: lossaudit.Allowed{Deleted: ids}})
+			return lossaudit.Audit(lossaudit.Input{Copies: copies, Result: merged, Allowed: lossaudit.Allowed{Deleted: ids, MergedGroups: groups}})
 		}
 
 		if losses := allowed(gone); len(losses) != 0 {
@@ -377,14 +384,14 @@ func TestPropertyOnlyADecisionAboutThatEntryLetsItGo(t *testing.T) {
 // another entry with a decision about that pair, and they must all arrive.
 func TestPropertyAnAbsorbedEntryLivesOnUnderItsSurvivor(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
-		copies, merged := mergeWithoutDecisions(t)
+		copies, merged, groups := mergeWithoutDecisions(t)
 		ids := drawEntries(t, merged)
 		if len(ids) < 2 {
 			t.Skip("the result has no pair of entries")
 		}
 		absorbed, survivor := ids[0], ids[1]
 		gone := removeEntry(merged, absorbed)
-		pair := lossaudit.Allowed{Absorbed: map[snapshot.UUID]snapshot.UUID{absorbed: survivor}}
+		pair := lossaudit.Allowed{Absorbed: map[snapshot.UUID]snapshot.UUID{absorbed: survivor}, MergedGroups: groups}
 
 		merged.Root.Walk(func(g *snapshot.Group) {
 			for i := range g.Entries {
@@ -398,7 +405,7 @@ func TestPropertyAnAbsorbedEntryLivesOnUnderItsSurvivor(t *testing.T) {
 		if losses := lossaudit.Audit(lossaudit.Input{Copies: copies, Result: merged, Allowed: pair}); len(losses) != 0 {
 			t.Errorf("the versions moved under the survivor, and the audit gave %+v", losses)
 		}
-		if losses := lossaudit.Audit(lossaudit.Input{Copies: copies, Result: merged}); !hasKind(losses, lossaudit.VersionLost) {
+		if losses := lossaudit.Audit(lossaudit.Input{Copies: copies, Result: merged, Allowed: lossaudit.Allowed{MergedGroups: groups}}); !hasKind(losses, lossaudit.VersionLost) {
 			t.Errorf("no decision moved the versions, and the audit gave %+v", losses)
 		}
 	})
@@ -407,7 +414,7 @@ func TestPropertyAnAbsorbedEntryLivesOnUnderItsSurvivor(t *testing.T) {
 // TestPropertyTheAuditChangesNothing: the writer still needs the result after the audit.
 func TestPropertyTheAuditChangesNothing(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
-		copies, merged := mergeWithoutDecisions(t)
+		copies, merged, _ := mergeWithoutDecisions(t)
 		copiesBefore := make([]*snapshot.Snapshot, len(copies))
 		for i, c := range copies {
 			copiesBefore[i] = mergetest.Clone(c)

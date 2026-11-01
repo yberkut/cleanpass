@@ -49,8 +49,9 @@ func (m *merger) settle(e *entryState) {
 	}
 	replacing := e.replacingMain()
 	outcome := e.outcomeWithoutConflict(len(m.in.Copies))
+	settled := m.memory.orderIsSettled(e.uuid, e.main().key.time(), replacing)
 	switch {
-	case near || future || len(replacing) > 0:
+	case near || future || (len(replacing) > 0 && !settled):
 		outcome = OutcomeAsked
 		detail := Conflict{Entry: e.uuid, Close: near, Future: future, Replaced: len(replacing) > 0}
 		if m.askAboutVersions(e, detail, slices.Concat(disputed, replacing)) {
@@ -139,7 +140,19 @@ func (m *merger) askAboutVersions(e *entryState, detail Conflict, asked []versio
 		Choices: len(answers),
 		Detail:  detail,
 	})
-	return answered && e.choose(answers[choice], m.in.Key, m.in.Now)
+	if !answered {
+		return false
+	}
+	main, replacing := e.main().key.time(), e.replacingMain()
+	if e.choose(answers[choice], m.in.Key, m.in.Now) {
+		return true
+	}
+	if len(replacing) > 0 {
+		// No new version closes the matter, so the same copy would raise the same question.
+		newest := slices.MaxFunc(replacing, compareKeys).time()
+		m.remember(memoryReplaced, e.uuid.String(), memoryDate(main), memoryDate(newest))
+	}
+	return false
 }
 
 // answers lists the possible answers. The first one is what happens without an answer, so it

@@ -54,7 +54,7 @@ func runMerge(env Env, args []string) int {
 	}
 
 	keysFrom := opened.newest()
-	if err := writeResult(env, output, opened, result.Merged, keysFrom); err != nil {
+	if err := writeResult(env, output, opened, result.Merged, allowedBy(result), keysFrom); err != nil {
 		return reportWriteError(env, output, err)
 	}
 
@@ -175,9 +175,23 @@ type lossesError struct{ losses []lossaudit.Loss }
 
 func (e *lossesError) Error() string { return "the audit found losses" }
 
+// allowedBy gives what the merge lets leave its place with no answer in this run: the groups on
+// one path, and what the memory of an earlier merge has decided about entries.
+func allowedBy(result *merge.Result) lossaudit.Allowed {
+	allowed := lossaudit.Allowed{
+		Deleted:      result.RememberedDeletions,
+		Absorbed:     make(map[snapshot.UUID]snapshot.UUID, len(result.Absorbed)),
+		MergedGroups: result.MergedGroups,
+	}
+	for _, a := range result.Absorbed {
+		allowed.Absorbed[a.Absorbed] = a.Into
+	}
+	return allowed
+}
+
 // writeResult runs the write protocol. The checks look at what the file really holds, not at
 // what the merge gave.
-func writeResult(env Env, output string, opened openedCopies, merged *snapshot.Snapshot, keysFrom *openedCopy) error {
+func writeResult(env Env, output string, opened openedCopies, merged *snapshot.Snapshot, allowed lossaudit.Allowed, keysFrom *openedCopy) error {
 	format := gateway.OutputFormat(keysFrom.snap.Format)
 	inputs := make([]safewriter.Input, 0, len(opened))
 	sources := make([]*snapshot.Snapshot, 0, len(opened))
@@ -195,7 +209,7 @@ func writeResult(env Env, output string, opened openedCopies, merged *snapshot.S
 			return err
 		},
 		Audit: func() error {
-			if losses := lossaudit.Audit(lossaudit.Input{Copies: sources, Result: written}); len(losses) > 0 {
+			if losses := lossaudit.Audit(lossaudit.Input{Copies: sources, Result: written, Allowed: allowed}); len(losses) > 0 {
 				return &lossesError{losses: losses}
 			}
 			return nil

@@ -12,10 +12,20 @@ import (
 func init() { addRule(phaseVersions, mergeVersions) }
 
 func mergeVersions(m *merger) {
+	for i := range m.in.Copies {
+		c := &m.in.Copies[i]
+		c.Snapshot.Root.Walk(func(g *snapshot.Group) {
+			for j := range g.Entries {
+				m.hold(c, g.UUID, &g.Entries[j])
+			}
+		})
+	}
 	for _, e := range m.sortedEntries() {
 		e.join(m.in.Key)
 		e.ruleMain = e.main()
-		m.settle(e)
+		if !m.goesByMemory(e) {
+			m.settle(e)
+		}
 	}
 }
 
@@ -104,6 +114,11 @@ type entryState struct {
 	uuid snapshot.UUID
 	// holdings holds one item for each place a copy holds this entry.
 	holdings []holding
+	// absorbed holds what the copies still hold of entries an earlier merge has taken into this
+	// one. These entries bring their versions and nothing else: what a copy does to an entry
+	// that is gone says nothing about this one. Only an entry with no holding of its own lies
+	// where they lie, see join.
+	absorbed []holding
 	// versions is the set of versions, the oldest first. The last one is the main version.
 	versions []*version
 	// ruleMain is the main version by the rule, before any answer of the human.
@@ -118,9 +133,11 @@ type entryState struct {
 
 // holding is what one copy holds of an entry.
 type holding struct {
-	copy  *Copy
-	group snapshot.UUID
-	entry *snapshot.Entry
+	copy *Copy
+	// group is the group of the result. source is the group in the copy, which says whether
+	// the copy holds the entry in a recycle bin.
+	group, source snapshot.UUID
+	entry         *snapshot.Entry
 	// main and history are the keys of the versions in this copy. A version that is both
 	// main and history counts only as main.
 	main    versionKey
@@ -129,16 +146,32 @@ type holding struct {
 
 // hold records that a copy holds an entry in a group.
 func (m *merger) hold(c *Copy, group snapshot.UUID, e *snapshot.Entry) {
-	state := m.entries[e.UUID]
+	id := m.memory.entries.head(e.UUID)
+	state := m.entries[id]
 	if state == nil {
-		state = &entryState{uuid: e.UUID}
-		m.entries[e.UUID] = state
+		state = &entryState{uuid: id}
+		m.entries[id] = state
 	}
-	state.holdings = append(state.holdings, holding{copy: c, group: group, entry: e})
+	h := holding{copy: c, group: m.groupID(group), source: group, entry: e}
+	if id == e.UUID {
+		state.holdings = append(state.holdings, h)
+	} else {
+		state.absorbed = append(state.absorbed, h)
+	}
 }
 
 // join builds the set of versions and the location from the holdings.
 func (e *entryState) join(key Key) {
+	if len(e.holdings) == 0 {
+		e.holdings, e.absorbed = e.absorbed, nil
+	}
+	for i := range e.absorbed {
+		old := e.absorbed[i].entry
+		e.put(key.versionKey(&old.EntryVersion), old.EntryVersion)
+		for j := range old.History {
+			e.put(key.versionKey(&old.History[j]), old.History[j])
+		}
+	}
 	for i := range e.holdings {
 		h := &e.holdings[i]
 		h.main = key.versionKey(&h.entry.EntryVersion)

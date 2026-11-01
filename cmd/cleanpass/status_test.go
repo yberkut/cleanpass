@@ -730,6 +730,40 @@ func TestStatusSeesADeletion(t *testing.T) {
 	})
 }
 
+// After an answer the result holds the record about the deletion and the memory of the answer, so
+// a merge with the old copy brings nothing new and asks nothing: the old copy only lags.
+func TestStatusCallsAnOldCopyBehindAResultWithAnAnswerAboutADeletion(t *testing.T) {
+	const (
+		second = "00000000000000000000000000000101"
+		// The real deletions below have the time of this run, and an answer knows no later one.
+		through = "2099-01-01T00:00:00Z"
+		decided = "2026-10-01T10:00:00Z"
+	)
+	noBin := strings.Replace(testkit.RichXML(), "<RecycleBinEnabled>True<", "<RecycleBinEnabled>False<", 1)
+	withAnswer := func(xml, kind string) string {
+		item := "<Item><Key>cleanpass/" + kind + "/" + second + "/" + through + "</Key><Value>" + decided + "</Value></Item>"
+		xml = strings.Replace(xml, "<Item><Key>meta-custom-key</Key>", item+"<Item><Key>meta-custom-key</Key>", 1)
+		return strings.Replace(xml, "<DeletedObjects>", "<DeletedObjects><DeletedObject><UUID>AAAAAAAAAAAAAAAAAAABAQ==</UUID><DeletionTime>"+decided+"</DeletionTime></DeletedObject>", 1)
+	}
+
+	t.Run("the human kept the entry", func(t *testing.T) {
+		dir := t.TempDir()
+		result := newCopy(t, dir, "result.kdbx", withAnswer(noBin, "rejected"))
+		deleted := newCopy(t, dir, "deleted.kdbx", noBin)
+		deleted.CLI(t, "rm", workEntry)
+
+		wantAhead(t, testkit.Run(t, passwords(2), "status", result.Path, deleted.Path), result.Path, deleted.Path)
+	})
+	t.Run("the human deleted the entry", func(t *testing.T) {
+		dir := t.TempDir()
+		result := newCopy(t, dir, "result.kdbx", withAnswer(noBin, "accepted"))
+		result.CLI(t, "rm", workEntry)
+		old := newCopy(t, dir, "old.kdbx", noBin)
+
+		wantAhead(t, testkit.Run(t, passwords(2), "status", result.Path, old.Path), result.Path, old.Path)
+	})
+}
+
 func TestStatusExplainsWhatItCannotDoWithCodeThree(t *testing.T) {
 	dir := t.TempDir()
 	good := newCopy(t, dir, "good.kdbx", testkit.RichXML())
