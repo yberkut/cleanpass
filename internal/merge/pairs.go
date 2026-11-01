@@ -313,7 +313,7 @@ func (m *merger) deletedSomewhere() map[snapshot.UUID]bool {
 	}
 	for id := range deleted {
 		if e := m.entries[id]; e != nil {
-			if answer, remembered := m.memory.deletionAnswer(m.deletion(e, m.records[id])); remembered && answer == AnswerKeep {
+			if answer, remembered := m.memory.deletionAnswer(e, m.deletion(e, m.records[id])); remembered && answer == AnswerKeep {
 				delete(deleted, id)
 			}
 		}

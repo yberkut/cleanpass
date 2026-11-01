@@ -1,10 +1,11 @@
 package merge_test
 
 import (
-	"maps"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"pgregory.net/rapid"
 
@@ -14,17 +15,27 @@ import (
 	"github.com/yberkut/cleanpass/internal/snapshot"
 )
 
-// allowedBy gives what a merge lets leave its place, the way the tool passes it to the Loss Audit.
-func allowedBy(result *merge.Result, decisions []merge.Decision) lossaudit.Allowed {
-	allowed := lossaudit.Allowed{
-		Absorbed:     map[snapshot.UUID]snapshot.UUID{},
-		Deleted:      slices.Concat(slices.Collect(maps.Keys(allowedToGo(decisions))), result.RememberedDeletions),
-		MergedGroups: result.MergedGroups,
-	}
+// allowedBy gives what a merge lets leave its place with no decision of this run, the way the
+// tool passes it to the Loss Audit. It names no entry the memory has removed: the audit reads the
+// memory of the copies by itself.
+func allowedBy(result *merge.Result) lossaudit.Allowed {
+	allowed := lossaudit.Allowed{Absorbed: map[snapshot.UUID]snapshot.UUID{}, MergedGroups: result.MergedGroups}
 	for _, a := range result.Absorbed {
 		allowed.Absorbed[a.Absorbed] = a.Into
 	}
 	return allowed
+}
+
+// goneByTheMemory gives the entries that left this merge because of an answer of an earlier one.
+func goneByTheMemory(result *merge.Result) []snapshot.UUID {
+	merged := allEntries(result.Merged)
+	var gone []snapshot.UUID
+	for _, event := range result.Report {
+		if change, ok := event.(merge.DeletionChange); ok && change.Remembered && change.Outcome == merge.DeletionApplied && merged[change.Entry] == nil {
+			gone = append(gone, change.Entry)
+		}
+	}
+	return gone
 }
 
 // TestPropertyNoLossWithTheMemory: a merge of the result with an old copy loses nothing, and
@@ -42,13 +53,12 @@ func TestPropertyNoLossWithTheMemory(t *testing.T) {
 
 		again := runOn(t, merge.Input{Copies: []merge.Copy{own, other}, Now: s.Now, Key: in.Key})
 
-		allowed := allowedBy(again, nil)
-		losses := lossaudit.Audit(lossaudit.Input{Copies: []*snapshot.Snapshot{first.Merged, other.Snapshot}, Result: again.Merged, Allowed: allowed})
+		losses := lossaudit.Audit(lossaudit.Input{Copies: []*snapshot.Snapshot{first.Merged, other.Snapshot}, Result: again.Merged, Allowed: allowedBy(again)})
 		if len(losses) != 0 {
 			t.Errorf("the audit found losses: %+v", losses)
 		}
 		chosen := allowedToGo(in.Decisions)
-		for _, id := range again.RememberedDeletions {
+		for _, id := range goneByTheMemory(again) {
 			remembered++
 			if !chosen[id] {
 				t.Errorf("entry %s went through the memory, and the human did not delete it", id)
@@ -57,6 +67,70 @@ func TestPropertyNoLossWithTheMemory(t *testing.T) {
 	})
 	if remembered == 0 {
 		t.Error("no scenario removed an entry through the memory, so the property says nothing about it")
+	}
+}
+
+// TestPropertyAnEditNobodySawAsksAfterAnAcceptedDeletion: an old copy gets an edit after the human
+// has deleted the entry, stamped by a clock that runs behind. The edit has an older time than any
+// version. It raises the question, it stays in the result, and the Loss Audit agrees.
+func TestPropertyAnEditNobodySawAsksAfterAnAcceptedDeletion(t *testing.T) {
+	edits := 0
+	rapid.Check(t, func(t *rapid.T) {
+		s := mergetest.Scenarios().Draw(t, "scenario")
+		in := merge.Input{Copies: s.Copies, Now: s.Now, Key: drawKey(t)}
+		in.Decisions = drawDecisions(t, runOn(t, in).Questions)
+		result := runOn(t, in).Merged
+		merged := allEntries(result)
+
+		for uuid := range allowedToGo(in.Decisions) {
+			holdings := heldEntries(s.Copies)[uuid]
+			if merged[uuid] != nil || len(holdings) == 0 {
+				continue
+			}
+			oldest := holdings[0].main.Times.LastModification
+			for _, h := range holdings {
+				for _, v := range h.versions {
+					if v.Times.LastModification.Before(oldest) {
+						oldest = v.Times.LastModification
+					}
+				}
+			}
+			for i, c := range s.Copies {
+				if len(heldEntries([]merge.Copy{c})[uuid]) == 0 {
+					continue
+				}
+				stale := mergetest.Clone(c.Snapshot)
+				e := allEntries(stale)[uuid]
+				e.History = append(e.History, e.EntryVersion)
+				e.Fields = append(slices.Clone(e.Fields), snapshot.Field{Key: "Edit", Value: "nobody saw this"})
+				e.Times.LastModification = oldest.Add(-time.Hour)
+				edits++
+
+				again := runOn(t, merge.Input{
+					Copies: []merge.Copy{{Name: "result", Snapshot: result}, {Name: fmt.Sprintf("edited %d", i), Snapshot: stale}},
+					Now:    s.Now,
+					Key:    in.Key,
+				})
+
+				if _, asked := deletionQuestions(again.Questions)[uuid]; !asked {
+					t.Errorf("entry %s: the edit raised no question", uuid)
+				}
+				kept := allEntries(again.Merged)[uuid]
+				if kept == nil {
+					t.Fatalf("entry %s: the edit is gone with the entry", uuid)
+				}
+				if !idsOf(versionsOfEntry(kept))[identify(&e.EntryVersion)] {
+					t.Errorf("entry %s lost the edit", uuid)
+				}
+				copies := []*snapshot.Snapshot{result, stale}
+				if losses := lossaudit.Audit(lossaudit.Input{Copies: copies, Result: again.Merged, Allowed: allowedBy(again)}); len(losses) != 0 {
+					t.Errorf("the audit found losses: %+v", losses)
+				}
+			}
+		}
+	})
+	if edits == 0 {
+		t.Error("no scenario gave an edit after an accepted deletion")
 	}
 }
 

@@ -204,6 +204,32 @@ func TestTheNextMergeAfterASaveOfKeePassXCAsksNothingTheHumanAnswered(t *testing
 	}
 }
 
+// A real edit in an old copy after the human deleted the entry: the file that remembers, a save of
+// KeePassXC, and the next merge must ask and keep what the human has not seen.
+func TestARealEditInAnOldCopyAsksAfterAnAcceptedDeletion(t *testing.T) {
+	original, forked := forkedFiles(t)
+	forked.CLI(t, "rm", entryPath)
+	forked.CLI(t, "rm", entryInBinPath)
+	first := answerAll(t, mergeInput(t, original, forked), func(q merge.Question) (int, bool) {
+		return merge.AnswerDelete, strings.HasPrefix(string(q.ID), "deletion:")
+	})
+	saved := openCopy(t, saveResult(t, original, first.Merged))
+
+	original.CLI(t, "edit", "--notes", "правка після рішення", entryPath)
+	again := mustRun(t, merge.Input{
+		Copies: []merge.Copy{{Name: "result", Snapshot: saved}, {Name: "old", Snapshot: openCopy(t, original)}},
+		Now:    laterThanAnySave(),
+		Key:    testKey,
+	})
+
+	if _, asked := deletionQuestions(again.Questions)[secondEntryID]; !asked {
+		t.Errorf("the merge asks %s", printed(again.Questions))
+	}
+	if allEntries(again.Merged)[secondEntryID] == nil {
+		t.Error("the edit is gone with the entry")
+	}
+}
+
 func TestGroupsThatJoinedStayOneAfterASaveOfKeePassXC(t *testing.T) {
 	original, forked := forkedFiles(t)
 	original.CLI(t, "mkdir", "/Спільна")
