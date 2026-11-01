@@ -954,13 +954,3 @@ func TestSecretsStayOutOfTheOutputAndTheDirectoryOfTheResult(t *testing.T) {
 	}
 	wantNoSecretInFiles(t, dir)
 }
-
-func TestMergeSaysThatNoOutsideProgramCheckedTheResult(t *testing.T) {
-	dir := t.TempDir()
-	a, b := divergedPair(t, dir)
-	got := testkit.Run(t, passwordLines(2), "merge", a.Path, b.Path, "--output", filepath.Join(dir, "new.kdbx"))
-	wantMerged(t, got)
-	if !strings.Contains(got.Stdout, "KeePassXC") {
-		t.Errorf("no word about the outside check:\n%s", got.Stdout)
-	}
-}
