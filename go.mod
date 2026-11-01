@@ -7,6 +7,7 @@ replace github.com/tobischo/gokeepasslib/v3 => ./third_party/gokeepasslib
 require (
 	github.com/tobischo/gokeepasslib/v3 v3.7.1
 	golang.org/x/term v0.47.0
+	pgregory.net/rapid v1.3.0
 )
 
 require (
