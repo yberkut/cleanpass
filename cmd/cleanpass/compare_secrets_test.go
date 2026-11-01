@@ -9,8 +9,6 @@ import (
 	"github.com/yberkut/cleanpass/internal/testkit"
 )
 
-const secretMarker = "SECRET-MARKER"
-
 // markedXML gives the rich fixture with a marker in every kind of value the report must not show,
 // beside the markers it already holds in passwords and passkeys.
 func markedXML(t *testing.T, password string) string {

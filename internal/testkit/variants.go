@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/tobischo/gokeepasslib/v3"
 	w "github.com/tobischo/gokeepasslib/v3/wrappers"
@@ -98,6 +99,11 @@ func NewKDBX3(t testing.TB, path, password string) DB {
 	}
 	old := gokeepasslib.NewEntry()
 	old.Values = []gokeepasslib.ValueData{value("Title", "kdbx3", false), value("Password", "SECRET-MARKER-old", true)}
+	// An older version really is older. At the same second the content would decide which
+	// version is the main one, and that differs from run to run.
+	earlier := w.Now()
+	earlier.Time = earlier.Time.Add(-time.Hour)
+	old.Times.LastModificationTime = &earlier
 	entry := gokeepasslib.NewEntry()
 	entry.UUID = old.UUID
 	entry.Values = []gokeepasslib.ValueData{value("Title", "kdbx3", false), value("Password", "SECRET-MARKER-new", true)}

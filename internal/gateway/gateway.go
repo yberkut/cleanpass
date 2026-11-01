@@ -140,6 +140,7 @@ func Open(path string, creds Credentials) (snap *snapshot.Snapshot, err error) {
 		return nil, err
 	}
 	snap.FieldLosses = losses
+	snap.FileDigest = sha256.Sum256(data)
 	return snap, nil
 }
 

@@ -67,6 +67,10 @@ type RawFile struct {
 	// Rounds replaces the rounds in the header of KDBX 3 when it is not zero. The file is
 	// still encrypted with the real ones.
 	Rounds uint64
+	// Comment goes to the comment field of the outer header.
+	Comment []byte
+	// PublicCustomData goes to the outer header of KDBX 4 when it is not nil.
+	PublicCustomData []KDFParam
 }
 
 // KDFParam is one item of the KDF parameters in the header of KDBX 4.
@@ -159,6 +163,9 @@ func (f RawFile) bytes4(t testing.TB, password string) []byte {
 		header = binary.LittleEndian.AppendUint32(header, uint32(len(value)))
 		header = append(header, value...)
 	}
+	if f.Comment != nil {
+		put(1, f.Comment)
+	}
 	put(2, gokeepasslib.CipherAES)
 	put(3, f.compressionFlag())
 	put(4, masterSeed)
@@ -168,6 +175,9 @@ func (f RawFile) bytes4(t testing.TB, password string) []byte {
 		params = AESKDFParams()
 	}
 	put(11, rawDictionary(params))
+	if f.PublicCustomData != nil {
+		put(12, rawDictionary(f.PublicCustomData))
+	}
 	put(0, []byte("\r\n\r\n"))
 
 	hmacBase := sha512.New()
@@ -223,6 +233,9 @@ func (f RawFile) bytes3(t testing.TB, password string) []byte {
 		header = append(header, id)
 		header = binary.LittleEndian.AppendUint16(header, uint16(len(value)))
 		header = append(header, value...)
+	}
+	if f.Comment != nil {
+		put(1, f.Comment)
 	}
 	put(2, gokeepasslib.CipherAES)
 	put(3, f.compressionFlag())
