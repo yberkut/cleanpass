@@ -401,6 +401,50 @@ func TestValuesOfCustomDataStayOutOfQuestionsAndReport(t *testing.T) {
 	}
 }
 
+// The key orders versions with the same time, and custom data must have no say in that. Otherwise
+// a merge of one copy, where the older edit lacks the custom data, and a merge of all copies, where
+// it has the data, would order the same two edits differently, and status compares the two.
+func TestCustomDataHasNoSayInTheOrderOfVersionsWithTheSameTime(t *testing.T) {
+	first := withCustomData(version(hours(1), "first"), "browser", "a")
+	second := withCustomData(version(hours(1), "second"), "browser", "a")
+	once, twice := database(entry(first)), database(entry(second, withCustomData(first)))
+
+	tops := map[string]int{}
+	for i := range 64 {
+		key := merge.Key{0: 9, 1: byte(i)}
+		both := mustRun(t, merge.Input{Copies: named(once, twice), Now: now, Key: key})
+		alone := mustRun(t, merge.Input{Copies: named(twice), Now: now, Key: key})
+
+		top := fieldValue(&onlyEntry(t, both.Merged).EntryVersion, "Password")
+		tops[top]++
+		if got := fieldValue(&onlyEntry(t, alone.Merged).EntryVersion, "Password"); got != top {
+			t.Errorf("key %d: the merge of one copy has %q on top, the merge of both %q", i, got, top)
+		}
+		if len(alone.Questions) != len(both.Questions) {
+			t.Errorf("key %d: the merge of one copy asks %d questions, the merge of both %d", i, len(alone.Questions), len(both.Questions))
+		}
+	}
+	if tops["first"] == 0 || tops["second"] == 0 {
+		t.Errorf("tops = %v: the key must decide between the two", tops)
+	}
+}
+
+// Between versions that differ only in custom data, the key still decides, and both stay.
+func TestTheKeyStillOrdersVersionsThatDifferOnlyInCustomData(t *testing.T) {
+	first := withCustomData(version(hours(1), "same"), "browser", "a")
+	second := withCustomData(version(hours(1), "same"), "plugin", "b")
+
+	tops := map[string]int{}
+	for i := range 64 {
+		in := input(named(database(entry(first)), database(entry(second)))...)
+		in.Key = merge.Key{0: 9, 1: byte(i)}
+		tops[customDataOfVersion(&onlyEntry(t, mustRun(t, in).Merged).EntryVersion)[0]]++
+	}
+	if tops["browser"] == 0 || tops["plugin"] == 0 {
+		t.Errorf("tops = %v: the key must decide between the two", tops)
+	}
+}
+
 // Only more items make a larger version. A repeated item is another fingerprint with the same
 // items, so nothing says which one holds more. KeePassXC does not write this, another program may.
 func TestTheSameItemsTwiceAreNoLargerVersion(t *testing.T) {

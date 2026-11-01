@@ -453,6 +453,9 @@ func TestStatusCallsCustomDataWhereNeitherHoldsTheOtherDiverged(t *testing.T) {
 
 // A second edit: the copy with two edits holds the first edit without its custom data in the
 // history. It is ahead anyway, because the copy behind holds nothing else.
+//
+// Each run of status has a new key, and the two edits often land in the same second. So one run
+// proves little: the verdict must be the same on every run.
 func TestStatusCallsTwoEditsOfAnEntryWithCustomDataALag(t *testing.T) {
 	dir := t.TempDir()
 	once := newCopy(t, dir, "once.kdbx", testkit.RichXML())
@@ -460,7 +463,48 @@ func TestStatusCallsTwoEditsOfAnEntryWithCustomDataALag(t *testing.T) {
 	twice := copyOf(t, once, "twice.kdbx")
 	twice.CLI(t, "edit", "--notes", "друга", mailEntry)
 
-	wantAhead(t, testkit.Run(t, passwords(2), "status", once.Path, twice.Path), twice.Path, once.Path)
+	for range 8 {
+		wantAhead(t, testkit.Run(t, passwords(2), "status", once.Path, twice.Path), twice.Path, once.Path)
+	}
+}
+
+// twoEditsInTheSameSecond gives what the real KeePassXC writes when two edits land in one second:
+// the second copy holds the main version of the first one in its history, without its custom
+// data, and a main version with the same time. A file stores no less than a second, so these two
+// versions share their time, and only the history tells their order.
+func twoEditsInTheSameSecond(t *testing.T) (first, second string) {
+	t.Helper()
+	xml := testkit.RichXML()
+	begin := strings.Index(xml, "<Entry><UUID>AAAAAAAAAAAAAAAAAAABAA==</UUID><IconID>5<")
+	end := strings.Index(xml, browserData)
+	if begin < 0 || end < begin || !strings.Contains(xml, "рядок 3 з відступом") {
+		t.Fatal("no main version of the entry in the fixture")
+	}
+	withoutData := xml[begin:end] + "</Entry>"
+	edited := strings.Replace(xml, "рядок 3 з відступом", "інший рядок", 1)
+	return xml, strings.Replace(edited, "<History>", "<History>"+withoutData, 1)
+}
+
+func TestStatusCallsTwoEditsInTheSameSecondALagOnEveryRun(t *testing.T) {
+	dir := t.TempDir()
+	firstXML, secondXML := twoEditsInTheSameSecond(t)
+	once := newCopy(t, dir, "once.kdbx", firstXML)
+	twice := newCopy(t, dir, "twice.kdbx", secondXML)
+
+	for range 16 {
+		wantAhead(t, testkit.Run(t, passwords(2), "status", once.Path, twice.Path), twice.Path, once.Path)
+	}
+}
+
+// A copy whose main version lacks the custom data lags, whichever way the key orders the versions.
+func TestStatusSeesMissingCustomDataOnEveryRun(t *testing.T) {
+	dir := t.TempDir()
+	full := newCopy(t, dir, "full.kdbx", testkit.RichXML())
+	bare := newCopy(t, dir, "bare.kdbx", richXMLWithBrowserData(t, ""))
+
+	for range 8 {
+		wantAhead(t, testkit.Run(t, passwords(2), "status", full.Path, bare.Path), full.Path, bare.Path)
+	}
 }
 
 // keepassxc-cli gives an entry a new time on a move to the bin, with the same content. The copies

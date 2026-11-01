@@ -108,6 +108,39 @@ func TestPropertyAnOldCopyInALaterRunChangesNoVersion(t *testing.T) {
 	})
 }
 
+// TestPropertyCustomDataHasNoSayInWhatIsOnTop: without any custom data in the copies, the main
+// version has the same time and the same other content. So a copy that lacks custom data in its
+// history orders its versions the way a merge of all copies does.
+func TestPropertyCustomDataHasNoSayInWhatIsOnTop(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		s := mergetest.Scenarios().Draw(t, "scenario")
+		key := drawKey(t)
+		bare := make([]merge.Copy, len(s.Copies))
+		for i, c := range s.Copies {
+			stripped := mergetest.Clone(c.Snapshot)
+			stripped.Root.Walk(func(g *snapshot.Group) {
+				for j := range g.Entries {
+					for _, v := range versionsOfEntry(&g.Entries[j]) {
+						v.CustomData = nil
+					}
+				}
+			})
+			bare[i] = merge.Copy{Name: c.Name, Snapshot: stripped}
+		}
+
+		with := allEntries(runOn(t, merge.Input{Copies: s.Copies, Now: s.Now, Key: key}).Merged)
+		without := allEntries(runOn(t, merge.Input{Copies: bare, Now: s.Now, Key: key}).Merged)
+
+		for uuid, e := range with {
+			main := e.EntryVersion
+			main.CustomData = nil
+			if got, want := identify(&without[uuid].EntryVersion), identify(&main); got != want {
+				t.Errorf("entry %s: custom data changed what is on top:\n got %s\nwant %s", uuid, got, want)
+			}
+		}
+	})
+}
+
 // TestPropertyTheSameContentIsNoConflict: when all main versions hold the same content, and the
 // clock puts no other content on top, no time makes that a conflict, neither as a question nor in
 // the report. A main version counts as the version that absorbs it.

@@ -17,10 +17,10 @@ import (
 // It is never written and never shown, so no type of the Result holds one.
 type fingerprint [sha256.Size]byte
 
-// fingerprintOf covers what contentOf encodes.
-func (k Key) fingerprintOf(v *snapshot.EntryVersion) fingerprint {
+// fingerprintOf gives the fingerprint of an encoded content.
+func (k Key) fingerprintOf(content []byte) fingerprint {
 	mac := hmac.New(sha256.New, k[:])
-	mac.Write(contentOf(v))
+	mac.Write(content)
 	return fingerprint(mac.Sum(nil))
 }
 

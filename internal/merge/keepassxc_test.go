@@ -114,6 +114,9 @@ func TestARealEditOfAnEntryWithCustomDataIsALag(t *testing.T) {
 }
 
 // Two edits in a row: the history versions of both lack the custom data, and one copy is ahead.
+// They often land in the same second. Then the key puts one of them on top, and if that is the
+// older one the merge asks, as it does about any main version a copy has replaced. It is never a
+// conflict, because the history tells the order.
 func TestTwoRealEditsInARowAreALag(t *testing.T) {
 	once, _ := forkedFiles(t)
 	once.CLI(t, "edit", "--notes", "перша", entryWithCustomData)
@@ -126,8 +129,20 @@ func TestTwoRealEditsInARowAreALag(t *testing.T) {
 		t.Fatal(err)
 	}
 	twice.CLI(t, "edit", "--notes", "друга", entryWithCustomData)
+	in := mergeInput(t, once, twice)
+	first := allEntries(in.Copies[0].Snapshot)[entryWithCustomDataID].Times.LastModification
+	second := allEntries(in.Copies[1].Snapshot)[entryWithCustomDataID].Times.LastModification
 
-	wantNoQuestions(t, mustRun(t, mergeInput(t, once, twice)))
+	result := mustRun(t, in)
+
+	if !first.Equal(second) {
+		wantNoQuestions(t, result)
+	}
+	for _, conflict := range conflictQuestions(result.Questions) {
+		if !conflict.Replaced || conflict.Close || conflict.Future {
+			t.Errorf("a conflict about two edits in a row: %s", printed(conflict))
+		}
+	}
 }
 
 // A move to the bin by the real keepassxc-cli gives a new time on the same content. That raises

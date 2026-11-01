@@ -264,9 +264,50 @@ func judge(files []*distinctFile, now time.Time) error {
 		if err != nil {
 			return err
 		}
-		file.holdsAll = reflect.DeepEqual(holdingsOf(alone.Merged), together) && asksNothingNew(all.Questions, alone.Questions)
+		file.holdsAll = reflect.DeepEqual(holdingsOf(alone.Merged), together) &&
+			asksNothingNew(all.Questions, alone.Questions) &&
+			keepsMainCustomData(file.snap, all.Merged)
 	}
 	return nil
+}
+
+// keepsMainCustomData says that the merge of all holds the main version of each entry of the
+// copy with the custom data it has here. If not, that version went into one with more, so the
+// copy lacks data it has in use.
+//
+// It looks at the main version of the copy and not at the one on top of the merge of this file:
+// with two versions of the same time, the key of the run can put an older edit there, and that
+// one may lack its custom data in the history, as KeePassXC writes it on each edit.
+func keepsMainCustomData(copy, merged *snapshot.Snapshot) bool {
+	kept := map[snapshot.UUID]*snapshot.Entry{}
+	merged.Root.Walk(func(g *snapshot.Group) {
+		for i := range g.Entries {
+			kept[g.Entries[i].UUID] = &g.Entries[i]
+		}
+	})
+	holds := true
+	copy.Root.Walk(func(g *snapshot.Group) {
+		for i := range g.Entries {
+			holds = holds && holdsVersionWithCustomData(kept[g.Entries[i].UUID], &g.Entries[i].EntryVersion)
+		}
+	})
+	return holds
+}
+
+func holdsVersionWithCustomData(e *snapshot.Entry, main *snapshot.EntryVersion) bool {
+	same := func(v *snapshot.EntryVersion) bool {
+		return v.Times.LastModification.Equal(main.Times.LastModification) &&
+			reflect.DeepEqual(plainCustomData(v.CustomData), plainCustomData(main.CustomData))
+	}
+	if same(&e.EntryVersion) {
+		return true
+	}
+	for i := range e.History {
+		if same(&e.History[i]) {
+			return true
+		}
+	}
+	return false
 }
 
 // asksNothingNew says that every question of the merge of all copies is also a question of
@@ -301,11 +342,10 @@ type groupHolding struct {
 // same versions, apart from custom data: a version with less of it goes into one with more.
 //
 // In a history that is what KeePassXC writes on each edit, so it is no difference between the
-// copies. The custom data of the main version is in use, so a copy that lacks it does not hold all.
+// copies. keepsMainCustomData looks at the main version of the copy.
 type entryHolding struct {
-	group      snapshot.UUID
-	versions   int
-	customData []snapshot.CustomDataItem
+	group    snapshot.UUID
+	versions int
 }
 
 func holdingsOf(merged *snapshot.Snapshot) holdings {
@@ -331,7 +371,7 @@ func holdingsOf(merged *snapshot.Snapshot) holdings {
 		}
 		for i := range g.Entries {
 			e := &g.Entries[i]
-			result.entries[e.UUID] = entryHolding{group: id, versions: 1 + len(e.History), customData: plainCustomData(e.CustomData)}
+			result.entries[e.UUID] = entryHolding{group: id, versions: 1 + len(e.History)}
 		}
 	})
 	for i := range merged.Deletions {

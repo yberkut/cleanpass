@@ -24,16 +24,32 @@ func mergeVersions(m *merger) {
 type versionKey struct {
 	seconds int64
 	nanos   int
+	// family is the fingerprint without the custom data. Between versions with the same time
+	// it speaks first, so custom data has no say in which edit lies on top: the same edit lacks
+	// its custom data in one history and has it in another, and a fingerprint with that data
+	// would order two edits one way in a merge of one copy and another way in a merge of all.
+	family fingerprint
+	// content is the fingerprint of all the version holds. It tells two versions apart.
 	content fingerprint
 }
 
 func (k Key) versionKey(v *snapshot.EntryVersion) versionKey {
 	t := v.Times.LastModification
-	return versionKey{seconds: t.Unix(), nanos: t.Nanosecond(), content: k.fingerprintOf(v)}
+	return versionKey{
+		seconds: t.Unix(),
+		nanos:   t.Nanosecond(),
+		family:  k.fingerprintOf(contentWithoutCustomData(v)),
+		content: k.fingerprintOf(contentOf(v)),
+	}
 }
 
 func compareKeys(a, b versionKey) int {
-	return cmp.Or(cmp.Compare(a.seconds, b.seconds), cmp.Compare(a.nanos, b.nanos), bytes.Compare(a.content[:], b.content[:]))
+	return cmp.Or(
+		cmp.Compare(a.seconds, b.seconds),
+		cmp.Compare(a.nanos, b.nanos),
+		bytes.Compare(a.family[:], b.family[:]),
+		bytes.Compare(a.content[:], b.content[:]),
+	)
 }
 
 // time gives the time of the version in UTC.
