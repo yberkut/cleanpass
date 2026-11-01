@@ -3,8 +3,9 @@ package merge
 import "github.com/yberkut/cleanpass/internal/snapshot"
 
 // Facts is what the Report takes from a merge. A Result holds the merged copy with its secrets,
-// and its events and questions are open types. Facts names each kind by its type, so a value of
-// this type cannot hold a secret value, whatever a rule does.
+// and its events and questions are open types that could hold anything. Facts names each kind by
+// its type and holds no open type and no part of a copy, so a secret value has no way into it. A
+// test in the Report reads these types to prove that.
 type Facts struct {
 	// Entries holds the entries the copies do not agree on.
 	Entries []EntryChange

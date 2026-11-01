@@ -284,8 +284,12 @@ func judge(files []*distinctFile, now time.Time) (*merge.Result, error) {
 // asksNothingNew says that every question of the merge of all copies is also a question of
 // the merge of one file.
 func asksNothingNew(all, alone []merge.Question) bool {
+	asked := make(map[merge.QuestionID]bool, len(alone))
+	for i := range alone {
+		asked[alone[i].ID] = true
+	}
 	for i := range all {
-		if !slices.ContainsFunc(alone, func(q merge.Question) bool { return q.ID == all[i].ID }) {
+		if !asked[all[i].ID] {
 			return false
 		}
 	}

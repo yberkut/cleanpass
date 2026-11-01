@@ -1,5 +1,6 @@
 // Package report is the Report module: it turns data into text. Its input never
-// holds secret values: it takes these plain structures, not a Snapshot.
+// holds secret values: it takes these plain structures and merge.Facts, not a Snapshot
+// or a merge.Result. A test reads the types of its input to prove that.
 package report
 
 import (
