@@ -28,8 +28,10 @@ var cheap = snapshot.Format{
 	KDF: snapshot.KDF{Kind: snapshot.KDFAES, Rounds: 1000},
 }
 
-// written saves the snapshot with the Gateway and gives what the real keepassxc-cli prints.
-func written(t *testing.T, snap *snapshot.Snapshot) []byte {
+var keys = gateway.Credentials{Password: []byte(testkit.Password)}
+
+// writtenFile saves the snapshot with the Gateway.
+func writtenFile(t *testing.T, snap *snapshot.Snapshot) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "written.kdbx")
 	file, err := os.Create(path)
@@ -37,14 +39,19 @@ func written(t *testing.T, snap *snapshot.Snapshot) []byte {
 		t.Fatal(err)
 	}
 	defer file.Close()
-	keys := gateway.Credentials{Password: []byte(testkit.Password)}
 	if err := gateway.Write(file, snap, cheap, keys); err != nil {
 		t.Fatal(err)
 	}
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
-	return []byte(testkit.DB{Path: path, Password: testkit.Password}.CLI(t, "export"))
+	return path
+}
+
+// written saves the snapshot and gives what the real keepassxc-cli prints.
+func written(t *testing.T, snap *snapshot.Snapshot) []byte {
+	t.Helper()
+	return []byte(testkit.DB{Path: writtenFile(t, snap), Password: testkit.Password}.CLI(t, "export"))
 }
 
 // richSnapshot is the rich fixture, read by the Gateway from a file of the real KeePassXC.
@@ -129,6 +136,22 @@ func TestKeePassXCAgreesWhereItReadsAFileInItsOwnWay(t *testing.T) {
 		},
 		"an icon with no name and no time": func(s *snapshot.Snapshot) {
 			s.Meta.CustomIcons = []snapshot.CustomIcon{{UUID: id(9), Data: "iVBORw0KGgo="}}
+		},
+		"an icon with line breaks in its base64": func(s *snapshot.Snapshot) {
+			s.Meta.CustomIcons = []snapshot.CustomIcon{{UUID: id(9), Data: "iVBOR\nw0KGgo=\n"}}
+		},
+		"an icon that is not base64": func(s *snapshot.Snapshot) {
+			s.Meta.CustomIcons = []snapshot.CustomIcon{
+				{UUID: id(9), Data: "Значок з літер"},
+				{UUID: id(10), Data: "a"},
+				{UUID: id(11), Data: "ab"},
+				{UUID: id(12), Data: "base"},
+			}
+		},
+		"two attachments under one name with the same bytes": func(s *snapshot.Snapshot) {
+			same := snapshot.NewAttachmentID([]byte("same"))
+			s.Attachments = map[snapshot.AttachmentID]snapshot.Attachment{same: {Content: []byte("same")}}
+			s.Root.Entries[0].Attachments = []snapshot.AttachmentRef{{Name: "a", ID: same}, {Name: "a", ID: same}}
 		},
 		"a time on custom data of the database, with no other new feature of the format": func(s *snapshot.Snapshot) {
 			s.Meta.CustomData = []snapshot.CustomDataItem{{Key: "with-time", Value: "v", LastModification: moment}}
@@ -228,6 +251,76 @@ func TestKeePassXCAgreesWithWhatTheMergeEngineGives(t *testing.T) {
 		if err := judge.CompareExport(written(t, result.Merged), result.Merged); err != nil {
 			t.Errorf("scenario %d: %v", seed, err)
 		}
+	}
+}
+
+// All the steps of the Judge, the bytes of attachments too. The generator gives many entries on
+// one path, and attachments in old versions.
+func TestTheWholeJudgeAgreesWithWhatTheMergeEngineGives(t *testing.T) {
+	const scenarios = 25
+	program, err := judge.Find()
+	if err != nil {
+		t.Fatal(err)
+	}
+	generator := mergetest.Scenarios()
+	checked := 0
+	for seed := range scenarios {
+		scenario := generator.Example(seed)
+		result, err := merge.Run(merge.Input{Copies: scenario.Copies, Now: scenario.Now, Key: merge.NewKey()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if holdsTwoContentsUnderOneName(result.Merged) {
+			continue
+		}
+		checked++
+		if err := program.Check(writtenFile(t, result.Merged), result.Merged, keys); err != nil {
+			t.Errorf("scenario %d: %v", seed, err)
+		}
+	}
+	if checked < scenarios/2 {
+		t.Errorf("only %d of %d scenarios got a check", checked, scenarios)
+	}
+}
+
+// holdsTwoContentsUnderOneName finds what only the generator makes. KeePassXC has one attachment
+// for a name, so it really cannot see both, and the Judge is right to stop there. The test below
+// proves that.
+func holdsTwoContentsUnderOneName(s *snapshot.Snapshot) bool {
+	found := false
+	inVersion := func(v *snapshot.EntryVersion) {
+		seen := map[string]snapshot.AttachmentID{}
+		for _, ref := range v.Attachments {
+			if other, known := seen[ref.Name]; known && other != ref.ID {
+				found = true
+			}
+			seen[ref.Name] = ref.ID
+		}
+	}
+	s.Root.Walk(func(g *snapshot.Group) {
+		for i := range g.Entries {
+			inVersion(&g.Entries[i].EntryVersion)
+			for j := range g.Entries[i].History {
+				inVersion(&g.Entries[i].History[j])
+			}
+		}
+	})
+	return found
+}
+
+func TestTheJudgeStopsAtTwoContentsUnderOneName(t *testing.T) {
+	program, err := judge.Find()
+	if err != nil {
+		t.Fatal(err)
+	}
+	one, two := snapshot.NewAttachmentID([]byte("one")), snapshot.NewAttachmentID([]byte("two"))
+	want := smallSnapshot()
+	want.Attachments = map[snapshot.AttachmentID]snapshot.Attachment{one: {Content: []byte("one")}, two: {Content: []byte("two")}}
+	want.Root.Entries[0].Attachments = []snapshot.AttachmentRef{{Name: "a", ID: one}, {Name: "a", ID: two}}
+
+	var mismatch *judge.MismatchError
+	if err := program.Check(writtenFile(t, want), want, keys); !errors.As(err, &mismatch) {
+		t.Errorf("got %v, want a mismatch: KeePassXC holds only one of the two", err)
 	}
 }
 

@@ -2,6 +2,7 @@ package judge
 
 import (
 	"cmp"
+	"encoding/base64"
 	"fmt"
 	"reflect"
 	"slices"
@@ -115,6 +116,9 @@ func (v viewer) snapshot(s *snapshot.Snapshot) *snapshot.Snapshot {
 		Deletions: slices.Clone(s.Deletions),
 	}
 	result.Meta.CustomIcons = slices.Clone(s.Meta.CustomIcons)
+	for i := range result.Meta.CustomIcons {
+		result.Meta.CustomIcons[i].Data = readAsKeePassXC(result.Meta.CustomIcons[i].Data)
+	}
 	result.Meta.CustomData = withoutService(s.Meta.CustomData, v.rules == nil || !v.rules.olderFormat)
 	if v.rules != nil {
 		// A setting that points at a group that is not there comes out as no group.
@@ -124,6 +128,29 @@ func (v viewer) snapshot(s *snapshot.Snapshot) *snapshot.Snapshot {
 		result.Meta.LastTopVisibleGroup = v.rules.existingGroup(s.Meta.LastTopVisibleGroup)
 	}
 	return result
+}
+
+// readAsKeePassXC gives the base64 of an icon as KeePassXC prints it after reading it: it skips what
+// is not in the alphabet and drops the bits that do not fill a byte.
+func readAsKeePassXC(data string) string {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+	var bytes []byte
+	var buffer uint32
+	bits := 0
+	for i := range len(data) {
+		value := strings.IndexByte(alphabet, data[i])
+		if value < 0 {
+			continue
+		}
+		buffer = buffer<<6 | uint32(value)
+		bits += 6
+		if bits >= 8 {
+			bits -= 8
+			bytes = append(bytes, byte(buffer>>bits))
+			buffer &= 1<<bits - 1
+		}
+	}
+	return base64.StdEncoding.EncodeToString(bytes)
 }
 
 func (r *readingRules) existingGroup(id snapshot.UUID) snapshot.UUID {
@@ -178,8 +205,13 @@ func (v viewer) version(e *snapshot.EntryVersion) snapshot.EntryVersion {
 	}
 	slices.SortFunc(result.Attachments, func(a, b snapshot.AttachmentRef) int { return cmp.Compare(a.Name, b.Name) })
 	result.Fields = v.fields(e.Fields)
-	if v.rules != nil && !e.CustomIcon.IsZero() {
-		result.IconID = 0
+	if v.rules != nil {
+		if !e.CustomIcon.IsZero() {
+			result.IconID = 0
+		}
+		// KeePassXC has one attachment for a name. The check of the bytes sees whether that loses
+		// anything.
+		result.Attachments = slices.Compact(result.Attachments)
 	}
 	return result
 }

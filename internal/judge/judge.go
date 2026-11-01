@@ -273,11 +273,15 @@ func sameAttachmentsInAllVersions(want, seen *snapshot.Entry) bool {
 }
 
 func sameAttachments(want, seen []snapshot.AttachmentRef) bool {
-	return slices.Equal(sortedByName(want), sortedByName(seen))
+	return slices.Equal(uniqueByNameAndBytes(want), uniqueByNameAndBytes(seen))
 }
 
-func sortedByName(refs []snapshot.AttachmentRef) []snapshot.AttachmentRef {
+// uniqueByNameAndBytes sorts the references and drops the repeated ones. KeePassXC has one
+// attachment for a name, and two with one name and the same bytes lose nothing there.
+func uniqueByNameAndBytes(refs []snapshot.AttachmentRef) []snapshot.AttachmentRef {
 	sorted := slices.Clone(refs)
-	slices.SortFunc(sorted, func(a, b snapshot.AttachmentRef) int { return cmp.Compare(a.Name, b.Name) })
-	return sorted
+	slices.SortFunc(sorted, func(a, b snapshot.AttachmentRef) int {
+		return cmp.Or(cmp.Compare(a.Name, b.Name), bytes.Compare(a.ID[:], b.ID[:]))
+	})
+	return slices.Compact(sorted)
 }
