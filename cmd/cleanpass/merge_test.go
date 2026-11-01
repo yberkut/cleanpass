@@ -738,6 +738,22 @@ func TestTheResultGetsTheKeysThatFit(t *testing.T) {
 	}
 }
 
+// Enter tries the password typed before, then no password. The second one fits here, so the
+// result must have no password either.
+func TestTheResultHasNoPasswordWhenEnterFoundThatTheNewestCopyHasNone(t *testing.T) {
+	dir := t.TempDir()
+	key := testkit.NewKeyFile(t, filepath.Join(dir, "key.bin"), 9)
+	older := testkit.DB{Path: filepath.Join(dir, "older.kdbx"), Password: testkit.Password}.Import(t, mergeableXML())
+	newest := testkit.DB{Path: filepath.Join(dir, "newest.kdbx"), KeyFile: key}.Import(t,
+		replaced(t, mergeableXML(), "<LastModificationTime>2026-03-01T10:00:04Z<", "<LastModificationTime>2099-03-01T10:00:04Z<"))
+	result := testkit.DB{Path: filepath.Join(dir, "new.kdbx"), KeyFile: key}
+
+	wantMerged(t, testkit.Run(t, testkit.Password+"\n\n", "merge", older.Path, newest.Path, "--key-file", key, "--output", result.Path))
+
+	// A group has no history, so the older time of the changed group is gone by the spec.
+	keptAllLines(t, result, newest)
+}
+
 func TestAKDBX3CopyIsUpgraded(t *testing.T) {
 	dir := t.TempDir()
 	source := testkit.NewKDBX3(t, filepath.Join(dir, "k3.kdbx"), testkit.Password)
@@ -897,7 +913,11 @@ func TestCrashPointsNeedTheirOwnVariable(t *testing.T) {
 	result := filepath.Join(dir, "new.kdbx")
 	opts := testkit.Options{
 		Stdin: passwordLines(2),
-		Env:   []string{safewriter.FaultVariable + "=", "CLEANPASS_CRASH=" + safewriter.PointJudge, safewriter.FaultCrashPrefix + safewriter.PointJudge + "=1"},
+		Env: []string{
+			safewriter.FaultVariable + "=",
+			"CLEANPASS_CRASH=" + safewriter.FaultCrashPrefix + safewriter.PointJudge,
+			"CLEANPASS_FAULT=" + safewriter.FaultCrashPrefix + safewriter.PointJudge,
+		},
 	}
 	wantMerged(t, testkit.RunWith(t, opts, "merge", a.Path, b.Path, "--output", result))
 }
