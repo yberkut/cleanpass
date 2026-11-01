@@ -2,6 +2,7 @@ package merge
 
 import (
 	"cmp"
+	"slices"
 	"time"
 
 	"github.com/yberkut/cleanpass/internal/snapshot"
@@ -63,20 +64,19 @@ func (m *merger) readBins() recycleBins {
 	return bins
 }
 
-// chooseResult takes the newest bin that exists. A copy without a bin takes nothing away,
-// because the entries in the bin of another copy must not come back to life.
+// chooseResult takes the newest bin that exists, and the smallest UUID of two equally new ones.
+// A copy without a bin takes nothing away, because the entries in the bin of another copy must
+// not come back to life.
 func (b *recycleBins) chooseResult(copies []Copy, existing map[snapshot.UUID]bool) {
-	for i := range copies {
-		meta := &copies[i].Snapshot.Meta
-		better := cmp.Or(
-			compareFlags(existing[meta.RecycleBin], existing[b.result]),
-			meta.RecycleBinChanged.Compare(b.changed),
-			compareUUIDs(b.result, meta.RecycleBin),
+	best := slices.MaxFunc(copies, func(x, y Copy) int {
+		first, second := &x.Snapshot.Meta, &y.Snapshot.Meta
+		return cmp.Or(
+			compareFlags(existing[first.RecycleBin], existing[second.RecycleBin]),
+			first.RecycleBinChanged.Compare(second.RecycleBinChanged),
+			compareUUIDs(second.RecycleBin, first.RecycleBin),
 		)
-		if i == 0 || better > 0 {
-			b.result, b.changed = meta.RecycleBin, meta.RecycleBinChanged
-		}
-	}
+	}).Snapshot.Meta
+	b.result, b.changed = best.RecycleBin, best.RecycleBinChanged
 }
 
 func compareFlags(a, b bool) int {

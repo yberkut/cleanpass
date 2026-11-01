@@ -132,7 +132,7 @@ func (m *merger) settleDeletion(e *entryState, records map[snapshot.UUID]record)
 	r, isRecorded := records[e.uuid]
 	inBin, outside := m.bins.count(e)
 	hasBoth := inBin > 0 && outside > 0
-	e.recycled = inBin > 0 && outside == 0
+	e.recycled = outside == 0
 	if !isRecorded && !hasBoth {
 		return false
 	}
@@ -201,19 +201,12 @@ func (m *merger) deletion(e *entryState, r record) Deletion {
 // newestOriginal gives the newest version the copies hold, which is not always the main
 // version: a decision about a conflict can add a new one.
 func (e *entryState) newestOriginal() *version {
-	newest := e.holdings[0].main
+	var keys []versionKey
 	for i := range e.holdings {
-		h := &e.holdings[i]
-		if compareKeys(h.main, newest) > 0 {
-			newest = h.main
-		}
-		for key := range h.history {
-			if compareKeys(key, newest) > 0 {
-				newest = key
-			}
-		}
+		keys = append(keys, e.holdings[i].main)
+		keys = slices.AppendSeq(keys, maps.Keys(e.holdings[i].history))
 	}
-	return e.find(newest)
+	return e.find(slices.MaxFunc(keys, compareKeys))
 }
 
 func sortedNames(names []string) []string {
