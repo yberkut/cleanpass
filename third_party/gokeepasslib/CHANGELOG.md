@@ -1,0 +1,237 @@
+### TO BE RELEASED
+
+### v3.7.1
+
+* Return an error instead of panicking when decoding a truncated or corrupted
+  database file
+    - Adds `ErrCorruptedDatabase`, which is wrapped by the returned error
+    - Content blocks are read without trusting their length, a damaged length
+      allocated up to 4 GiB before. The same applies to the lengths in the
+      header, the inner header and the KDF parameters
+    - The hash and index of each KDBX v3.1 content block are verified, as KeePass
+      does, so corrupted content is no longer decoded silently
+    - Encrypted content which is not a multiple of the block size of AES or
+      TwoFish, or an encryption IV of the wrong size, is rejected before
+      decrypting it
+    - Header and KDF parameter values which are too short for their type, missing
+      KDF parameters and argon2 parameters of zero are rejected
+* Validate the SHA-256 of a KDBX v4 header before deriving the key, so the key
+  derivation never runs on the parameters of a corrupted header
+* Return the errors of reading the content and of decompressing it, which were
+  ignored before
+    - The gzip stream is read as a single stream, so the padding of the block
+      cipher which follows it is no longer read as another stream
+* Unlock protected values in the order in which they appear in the XML document
+    - Entries and groups which alternate within a group (e.g. Entry, Group,
+      Entry), as written by some KeePass clients, were unlocked as two blocks before,
+      which corrupted the protected values after the first subgroup. Only
+      whether the first child was an entry or a group was taken into account
+    - The same applies to a `<String>` which follows a `<History>` within an
+      entry, as written by some KeePass libraries
+    - Entries and groups added after decoding are unlocked after the decoded
+      ones, in the order of the struct
+    - Locking resets the recorded document order, since values are locked in
+      the order of the struct. Unmarshalled values which are locked and then
+      unlocked again were corrupted before if they were not in that order
+    - Note that `Entry` now has an unexported field like `Group`, so comparing
+      entries with go-cmp requires `cmp.AllowUnexported(Entry{})`
+
+### v3.7.0
+
+* Add support for stream protected binaries in the KDBX v3.1 metadata section
+  (`<Binary Protected="True">`), as written by KeePass
+    - Adds `Protected` to `Binary`
+    - The inner stream cipher was not advanced for those binaries, which
+      corrupted every protected value that follows them in the document, i.e.
+      all passwords of such a database were read and written incorrectly
+    - The `Compressed` flag of a protected binary is ignored, matching KeePass,
+      which never compresses protected content
+    - Locking or unlocking a protected binary whose content is not valid base64
+      returns an `ErrInvalidProtectedBinary` rather than skipping it, since
+      skipping would corrupt the protected values which follow it
+* Return the actual decoded length from `Binary.GetContentBytes` for uncompressed
+  base64 content instead of a zero padded buffer
+* Propagate errors while unmarshalling the children of a group instead of dropping
+  the child element silently
+    - Malformed XML resulted in an endless loop before, since reading a token only
+      stopped at `io.EOF`, while the xml decoder keeps returning a syntax error
+    - Note that a file with an unparseable element now fails to decode instead of
+      being decoded with values which are silently wrong. Unknown elements are
+      still ignored
+* Add support for the KDBX 4.1 file format
+    - Adds `WithDatabaseKDBXVersion41()`, `NewKDBX41Header()`, `DefaultKDBX41Sig`
+      and `(*DBHeader).IsKdbx41()`
+    - Adds `Tags`, `PreviousParentGroup` and `CustomData` to `Group`
+    - Adds `QualityCheck` and `PreviousParentGroup` to `Entry`
+    - Adds `Name` and `LastModificationTime` to `CustomIcon`
+    - Adds `LastModificationTime` to `CustomData`
+    - A KDBX 4.0 database is upgraded to KDBX 4.1 while encoding if it contains
+      elements which require it, following KeePass, which writes a database with
+      the lowest file format version that is able to hold its content.
+      Encoding a KDBX 3.1 database containing such elements returns an
+      `ErrKdbxVersionUpgradeRequired` instead of dropping them silently, since
+      upgrading it would change the structure of the file itself
+* Deprecate `DefaultKDBX4Sig`, `NewKDBX4Header()` and `WithDatabaseKDBXVersion4()` in
+  favour of the same names with a `40` version suffix, which distinguishes them from
+  their KDBX 4.1 counterparts.
+  `NewKDBX4FileHeaders()` keeps its name, as the file headers depend on the major
+  version only
+* Correct the XML written by the encoder to match the KDBX XML schema
+    - The `Binary` and `CustomData` elements of an entry are written in the
+      documented order
+    - `CustomIconUUID` is not written anymore if no custom icon is set
+    - `EntryTemplatesGroup`, `LastSelectedGroup`, `LastTopVisibleGroup` and
+      `LastTopVisibleEntry` are initialized with a zero UUID instead of an empty
+      value, as those elements have to contain a UUID
+    - Groups now contain an empty `CustomData` element if they have no custom
+      data, matching the existing behaviour for entries
+* Add `(UUID).IsZero()` and the `ZeroUUIDText` constant
+* Marshal `BoolWrapper` and `NullableBoolWrapper` through value receivers, so that
+  they are also written as `True`/`False`/`null` when a struct containing them is
+  marshalled by value instead of through a pointer
+
+### v3.6.2
+
+* Adapt `composeContentBlocks31` method to fix file size inflation on encoding for KDBX v3.1 files
+
+### v3.6.1
+
+* Updated `golang.org/x/crypto`
+* Bump CI go versions to 1.22 and 1.23 instead of 1.21 and 1.22
+
+### v3.6.0
+
+* Add golangci-lint to ci steps and correct some of the findings
+* Add twofish support
+
+### v3.5.3
+
+* Use chacha20 from official implementation
+* Updated `golang.org/x/crypto`
+* Replaced `github.com/aead/argon2` with `github.com/tobischo/argon2`
+
+### v3.5.2
+
+* Setup dependabot
+* Bump dependencies
+
+### v3.5.1
+
+* Update `golang.org/x/crypto` to `v0.8.0`
+* Update `golang.org/x/sys` to `v0.7.0`
+
+### v3.5.0
+
+* Add support for Cloning `Group` and `Entry`
+
+### v3.4.1
+
+* Fix key file support to actually deal with the different supported key file types
+
+### v3.4.0
+
+* Fix binary referencing after remove
+* Add binary garbage collections if all references have been removed
+
+### v3.3.0
+
+* Add database `AddBinary` and `FindBinary` functions
+
+### v3.2.5
+
+* Add missing CustomData support for entries
+
+### v3.2.4
+
+* Add support for handling protected value unlocking with `Entry` or `Group` being loaded first from XML
+* Initialize fresh UUIDs on unmarshal in case they are missing
+
+### v3.2.3
+
+* Adds `(*Binary).GetContentString() (string, error)` and `(*Binary).GetContentBytes() ([]byte, error)` funcs
+* Deprecates `(*Binary).GetContent() (string, error)`
+* Also adds `CustomIcon` support on `Group` level
+
+### v3.2.2
+
+* Correctly support multiple Window Associations in an entry's AutoType data
+
+### v3.2.1
+
+* Add missing DefaultSequence in AutoType data
+
+### v3.2.0
+
+* Add support for custom icons
+
+### v3.1.0
+
+* Add initialization support for KDBXv4 files
+* Add SettingsChanged MetaData field
+
+### v3.0.5
+
+* Improve time marshalling/unmarshalling performance
+
+### v3.0.4
+
+* Ensure time values are formatted according to the version when encoding the DB to file
+* Split up code into several smaller files
+
+### v3.0.3
+
+* Split up `BoolWrapper` and `NullableBoolWrapper`
+
+### v3.0.2
+
+* Improve AES decrypt performance (cont.)
+
+### v3.0.1
+
+* Improve AES decrypt performance
+
+### v3.0.0
+
+* Fix `BoolWrapper` to support null values
+    - This introduced a breaking change
+
+### v2.1.3
+
+* Fix `TimeWrapper` marshalling and unmarshalling
+
+### v2.1.2
+
+* Attempt to fix `TimeWrapper`
+
+### v2.1.1
+
+* Add `ParseKeyData` to allow loading keys without file operation
+
+### v2.1.0
+
+* Add functional option support for all kinds of initializers
+
+### v2.0.3
+
+* Add KDBX4 HMAC verification on file decoding
+
+### v2.0.2
+
+* Fix KDBX4 HMAC building for encrypted content blocks on file encoding
+
+### v2.0.1
+
+* Drop counter for SalsaStream
+
+### v2.0.0
+
+* KDBX v4.0 support
+* Argon2 support
+* ChaCha20 support
+* Restructured code
+* Fixed support for keyfile
+* Moved type wrappers into separate package
+
+### v1.0.0
+
+* KDBX v3.1 support

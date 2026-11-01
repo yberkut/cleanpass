@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic data only. Every time stamp is unique, so a test can move exactly one of them. -->
+<KeePassFile><Meta>
+<Generator>KeePassXC</Generator><DatabaseName>Синтетична база</DatabaseName><DatabaseNameChanged>2026-02-02T10:00:01Z</DatabaseNameChanged>
+<DatabaseDescription>Опис бази</DatabaseDescription><DatabaseDescriptionChanged>2026-02-02T10:00:02Z</DatabaseDescriptionChanged>
+<DefaultUserName>default-user</DefaultUserName><DefaultUserNameChanged>2026-02-02T10:00:03Z</DefaultUserNameChanged>
+<MaintenanceHistoryDays>365</MaintenanceHistoryDays><Color>#FF0000</Color>
+<MasterKeyChanged>2026-02-03T10:00:00Z</MasterKeyChanged><MasterKeyChangeRec>90</MasterKeyChangeRec><MasterKeyChangeForce>-1</MasterKeyChangeForce>
+<MemoryProtection><ProtectTitle>False</ProtectTitle><ProtectUserName>False</ProtectUserName><ProtectPassword>True</ProtectPassword><ProtectURL>False</ProtectURL><ProtectNotes>False</ProtectNotes></MemoryProtection>
+<CustomIcons><Icon><UUID>AAAAAAAAAAAAAAAAAAAJAQ==</UUID><Data>iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==</Data><Name>my icon</Name><LastModificationTime>2026-02-04T10:00:00Z</LastModificationTime></Icon></CustomIcons>
+<RecycleBinEnabled>True</RecycleBinEnabled><RecycleBinUUID>AAAAAAAAAAAAAAAAAAAAMA==</RecycleBinUUID><RecycleBinChanged>2026-02-05T10:00:00Z</RecycleBinChanged>
+<EntryTemplatesGroup>AAAAAAAAAAAAAAAAAAAAAA==</EntryTemplatesGroup><EntryTemplatesGroupChanged>2026-02-05T10:00:01Z</EntryTemplatesGroupChanged>
+<LastSelectedGroup>AAAAAAAAAAAAAAAAAAAAIA==</LastSelectedGroup><LastTopVisibleGroup>AAAAAAAAAAAAAAAAAAAAEA==</LastTopVisibleGroup>
+<HistoryMaxItems>25</HistoryMaxItems><HistoryMaxSize>7340032</HistoryMaxSize><SettingsChanged>2026-02-06T10:00:00Z</SettingsChanged>
+<CustomData><Item><Key>meta-custom-key</Key><Value>meta-custom-value</Value><LastModificationTime>2026-02-07T10:00:00Z</LastModificationTime></Item></CustomData>
+<Binaries><Binary ID="0" Compressed="False">c3ludGhldGljIGF0dGFjaG1lbnQgYnl0ZXMgAAECIGVuZA==</Binary><Binary ID="1" Compressed="False">c3ludGhldGljIG9sZCBhdHRhY2htZW50</Binary></Binaries>
+</Meta><Root>
+<Group><UUID>AAAAAAAAAAAAAAAAAAAAEA==</UUID><Name>Root</Name><Notes>Кореневі нотатки</Notes><IconID>48</IconID><Times>
+  <LastModificationTime>2026-03-01T10:00:01Z</LastModificationTime><CreationTime>2026-01-01T10:00:01Z</CreationTime>
+  <LastAccessTime>2026-04-01T10:00:01Z</LastAccessTime><ExpiryTime>2030-01-01T10:00:01Z</ExpiryTime>
+  <Expires>False</Expires><UsageCount>1</UsageCount><LocationChanged>2026-02-01T10:00:01Z</LocationChanged>
+</Times>
+<IsExpanded>True</IsExpanded><DefaultAutoTypeSequence>{USERNAME}{ENTER}</DefaultAutoTypeSequence><EnableAutoType>true</EnableAutoType><EnableSearching>false</EnableSearching><LastTopVisibleEntry>AAAAAAAAAAAAAAAAAAABAA==</LastTopVisibleEntry>
+<CustomData><Item><Key>group-custom</Key><Value>group-value</Value><LastModificationTime>2026-02-08T10:00:00Z</LastModificationTime></Item></CustomData>
+
+<Entry><UUID>AAAAAAAAAAAAAAAAAAABAA==</UUID><IconID>5</IconID><CustomIconUUID>AAAAAAAAAAAAAAAAAAAJAQ==</CustomIconUUID>
+<ForegroundColor>#112233</ForegroundColor><BackgroundColor>#445566</BackgroundColor><OverrideURL>cmd://calc</OverrideURL><Tags>alpha;бета;gamma</Tags>
+<QualityCheck>False</QualityCheck><PreviousParentGroup>AAAAAAAAAAAAAAAAAAAAIA==</PreviousParentGroup><Times>
+  <LastModificationTime>2026-03-15T10:00:00Z</LastModificationTime><CreationTime>2026-01-01T10:00:02Z</CreationTime>
+  <LastAccessTime>2026-04-02T10:00:00Z</LastAccessTime><ExpiryTime>2030-01-01T10:00:02Z</ExpiryTime>
+  <Expires>True</Expires><UsageCount>7</UsageCount><LocationChanged>2026-02-01T10:00:02Z</LocationChanged>
+</Times>
+<String><Key>Title</Key><Value>Пошта &lt;&amp;&gt; "quoted" 😀</Value></String><String><Key>UserName</Key><Value>user@example.com</Value></String><String><Key>Password</Key><Value ProtectInMemory="True">  SECRET-MARKER-поточний пароль  </Value></String><String><Key>URL</Key><Value>https://mail.example.com/login?a=1&amp;b=2</Value></String>
+<String><Key>Notes</Key><Value>рядок 1
+
+  рядок 3 з відступом
+</Value></String>
+<String><Key>otp</Key><Value ProtectInMemory="True">otpauth://totp/Example:user?secret=JBSWY3DPEHPK3PXP&amp;period=30&amp;digits=6&amp;issuer=Example</Value></String>
+<String><Key>KPEX_PASSKEY_CREDENTIAL_ID</Key><Value>Y3JlZC1pZA</Value></String><String><Key>KPEX_PASSKEY_PRIVATE_KEY_PEM</Key><Value ProtectInMemory="True">SECRET-MARKER-passkey</Value></String><String><Key>KPEX_PASSKEY_RELYING_PARTY</Key><Value>example.com</Value></String><String><Key>KPEX_PASSKEY_USERNAME</Key><Value>user</Value></String><String><Key>KPEX_PASSKEY_USER_HANDLE</Key><Value ProtectInMemory="True">aGFuZGxl</Value></String>
+<String><Key>Власне поле</Key><Value>власне значення</Value></String><String><Key>EmptyField</Key><Value></Value></String>
+<Binary><Key>file.bin</Key><Value Ref="0"/></Binary>
+<AutoType><Enabled>True</Enabled><DataTransferObfuscation>1</DataTransferObfuscation><DefaultSequence>{PASSWORD}{TAB}</DefaultSequence>
+<Association><Window>*Firefox*</Window><KeystrokeSequence>{USERNAME}{TAB}{PASSWORD}</KeystrokeSequence></Association></AutoType>
+<CustomData><Item><Key>KPXC_BROWSER_SETTINGS</Key><Value>{"Allow":["example.com"]}</Value><LastModificationTime>2026-02-09T10:00:00Z</LastModificationTime></Item></CustomData>
+<History>
+<Entry><UUID>AAAAAAAAAAAAAAAAAAABAA==</UUID><IconID>0</IconID><ForegroundColor/><BackgroundColor/><OverrideURL/><Tags/><Times>
+  <LastModificationTime>2026-02-20T10:00:00Z</LastModificationTime><CreationTime>2026-01-01T10:00:03Z</CreationTime>
+  <LastAccessTime>2026-02-20T10:00:03Z</LastAccessTime><ExpiryTime>2030-01-01T10:00:03Z</ExpiryTime>
+  <Expires>False</Expires><UsageCount>3</UsageCount><LocationChanged>2026-02-01T10:00:03Z</LocationChanged>
+</Times>
+<String><Key>Title</Key><Value>Пошта стара</Value></String><String><Key>UserName</Key><Value>user@example.com</Value></String><String><Key>Password</Key><Value ProtectInMemory="True">SECRET-MARKER-старий пароль</Value></String><String><Key>URL</Key><Value></Value></String><String><Key>Notes</Key><Value></Value></String>
+<Binary><Key>old.bin</Key><Value Ref="1"/></Binary><AutoType><Enabled>True</Enabled><DataTransferObfuscation>0</DataTransferObfuscation></AutoType></Entry>
+</History></Entry>
+
+<Group><UUID>AAAAAAAAAAAAAAAAAAAAIA==</UUID><Name>Робота</Name><Notes/><IconID>1</IconID><Tags>group-tag</Tags><Times>
+  <LastModificationTime>2026-03-01T10:00:02Z</LastModificationTime><CreationTime>2026-01-01T10:00:04Z</CreationTime>
+  <LastAccessTime>2026-04-01T10:00:02Z</LastAccessTime><ExpiryTime>2030-01-01T10:00:04Z</ExpiryTime>
+  <Expires>False</Expires><UsageCount>2</UsageCount><LocationChanged>2026-02-01T10:00:04Z</LocationChanged>
+</Times><IsExpanded>False</IsExpanded><DefaultAutoTypeSequence/><EnableAutoType>null</EnableAutoType><EnableSearching>null</EnableSearching><LastTopVisibleEntry>AAAAAAAAAAAAAAAAAAAAAA==</LastTopVisibleEntry><PreviousParentGroup>AAAAAAAAAAAAAAAAAAAAEA==</PreviousParentGroup>
+<Entry><UUID>AAAAAAAAAAAAAAAAAAABAQ==</UUID><IconID>0</IconID><ForegroundColor/><BackgroundColor/><OverrideURL/><Tags/><Times>
+  <LastModificationTime>2026-03-01T10:00:03Z</LastModificationTime><CreationTime>2026-01-01T10:00:05Z</CreationTime>
+  <LastAccessTime>2026-04-01T10:00:03Z</LastAccessTime><ExpiryTime>2030-01-01T10:00:05Z</ExpiryTime>
+  <Expires>False</Expires><UsageCount>4</UsageCount><LocationChanged>2026-02-01T10:00:05Z</LocationChanged>
+</Times>
+<String><Key>Title</Key><Value>Друге</Value></String><String><Key>UserName</Key><Value>u2</Value></String><String><Key>Password</Key><Value ProtectInMemory="True">SECRET-MARKER-друге</Value></String><String><Key>URL</Key><Value>https://b.example</Value></String><String><Key>Notes</Key><Value></Value></String>
+<Binary><Key>same-content.bin</Key><Value Ref="0"/></Binary><AutoType><Enabled>False</Enabled><DataTransferObfuscation>0</DataTransferObfuscation></AutoType><History/></Entry>
+</Group>
+<Group><UUID>AAAAAAAAAAAAAAAAAAAAMA==</UUID><Name>Кошик</Name><Notes/><IconID>43</IconID><Times>
+  <LastModificationTime>2026-03-01T10:00:04Z</LastModificationTime><CreationTime>2026-01-01T10:00:06Z</CreationTime>
+  <LastAccessTime>2026-04-01T10:00:04Z</LastAccessTime><ExpiryTime>2030-01-01T10:00:06Z</ExpiryTime>
+  <Expires>False</Expires><UsageCount>0</UsageCount><LocationChanged>2026-02-01T10:00:06Z</LocationChanged>
+</Times><IsExpanded>False</IsExpanded><DefaultAutoTypeSequence/><EnableAutoType>false</EnableAutoType><EnableSearching>false</EnableSearching><LastTopVisibleEntry>AAAAAAAAAAAAAAAAAAAAAA==</LastTopVisibleEntry>
+<Entry><UUID>AAAAAAAAAAAAAAAAAAABAg==</UUID><IconID>0</IconID><ForegroundColor/><BackgroundColor/><OverrideURL/><Tags/><Times>
+  <LastModificationTime>2026-03-01T10:00:05Z</LastModificationTime><CreationTime>2026-01-01T10:00:07Z</CreationTime>
+  <LastAccessTime>2026-04-01T10:00:05Z</LastAccessTime><ExpiryTime>2030-01-01T10:00:07Z</ExpiryTime>
+  <Expires>False</Expires><UsageCount>0</UsageCount><LocationChanged>2026-02-01T10:00:07Z</LocationChanged>
+</Times>
+<String><Key>Title</Key><Value>У кошику</Value></String><String><Key>UserName</Key><Value>u3</Value></String><String><Key>Password</Key><Value ProtectInMemory="True">SECRET-MARKER-кошик</Value></String><String><Key>URL</Key><Value></Value></String><String><Key>Notes</Key><Value></Value></String><AutoType><Enabled>True</Enabled><DataTransferObfuscation>0</DataTransferObfuscation></AutoType><History/></Entry>
+</Group>
+</Group>
+<DeletedObjects><DeletedObject><UUID>AAAAAAAAAAAAAAAAAAAHdw==</UUID><DeletionTime>2026-02-10T10:00:00Z</DeletionTime></DeletedObject></DeletedObjects>
+</Root></KeePassFile>
