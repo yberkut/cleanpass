@@ -407,8 +407,11 @@ func wantUkrainian(t *testing.T, stdout, stderr string, paths ...string) {
 		"cleanpass": true, "compare": true, "status": true, "file": true, "help": true, "key": true,
 		"KDBX": true, "KDF": true, "AES": true, "ChaCha": true, "Twofish": true, "Argon": true,
 		"Enter": true, "stdin": true, "KeePass": true, "KeePassXC": true, "verbose": true, "sync": true,
+		"merge": true, "output": true,
+		"UUID": true, "URL": true,
 	}
 	for _, output := range []string{stdout, stderr} {
+		output = commandLine.ReplaceAllString(output, "")
 		for _, path := range paths {
 			output = strings.ReplaceAll(output, path, "")
 		}
@@ -426,6 +429,8 @@ func wantUkrainian(t *testing.T, stdout, stderr string, paths ...string) {
 var (
 	latinWord = regexp.MustCompile(`[A-Za-z]{2,}`)
 	cyrillic  = regexp.MustCompile(`\p{Cyrillic}`)
+	// commandLine is the command a report offers: it holds paths and options, not text.
+	commandLine = regexp.MustCompile(`(?m)^  .* merge .*$`)
 )
 
 func copyFile(t *testing.T, from, to string) {

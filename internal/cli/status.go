@@ -59,7 +59,7 @@ func runStatus(env Env, args []string) int {
 		}
 		file.snap = snap
 	}
-	if err := judge(files, time.Now()); err != nil {
+	if _, err := judge(files, time.Now()); err != nil {
 		return fail(env, text.StatusFailed)
 	}
 	if err := writeFieldLosses(env.Stdout, files); err != nil {
@@ -108,6 +108,16 @@ func writeFieldLosses(w io.Writer, files []*distinctFile) error {
 // number of the others may lag, also in different ways. Exit code 2 means only a merge
 // can bring together what the copies hold.
 func verdict(files []*distinctFile, args []string, firstPath string) (int, []string) {
+	code, lines := standing(files)
+	if code == exitDiverged {
+		lines = append(lines, text.StatusNextCommand, "  "+mergeCommand(args, firstPath))
+	}
+	return code, lines
+}
+
+// standing says how the copies stand to each other after judge has run, and what its exit code
+// is. The commands that use it decide what to offer next.
+func standing(files []*distinctFile) (int, []string) {
 	var ahead, behind []session.Copy
 	for _, file := range files {
 		if file.holdsAll {
@@ -120,7 +130,7 @@ func verdict(files []*distinctFile, args []string, firstPath string) (int, []str
 	case len(behind) == 0:
 		return exitOK, []string{text.StatusSameContent}
 	case len(ahead) == 0:
-		return exitDiverged, []string{text.StatusDiverged, text.StatusNextCommand, "  " + mergeCommand(args, firstPath)}
+		return exitDiverged, []string{text.StatusDiverged}
 	}
 	var lines []string
 	for _, c := range ahead {
@@ -137,8 +147,8 @@ func verdict(files []*distinctFile, args []string, firstPath string) (int, []str
 
 // mergeCommand gives the command that merges the copies, ready to copy. It repeats the
 // arguments of this run as they came, so an option of a copy stays beside its file. After
-// -- every word is a file, so --output goes in front of it.
-func mergeCommand(args []string, firstPath string) string {
+// -- every word is a file, so --output and any other option of the command go in front of it.
+func mergeCommand(args []string, firstPath string, options ...string) string {
 	at := slices.Index(args, "--")
 	if at < 0 {
 		at = len(args)
@@ -146,6 +156,7 @@ func mergeCommand(args []string, firstPath string) string {
 	words := slices.Concat(
 		[]string{filepath.ToSlash(os.Args[0]), "merge"},
 		args[:at],
+		options,
 		[]string{"--output", freePath(firstPath)},
 		args[at:],
 	)
@@ -237,15 +248,16 @@ func hashOf(path string) (hash [sha256.Size]byte, err error) {
 	return hash, nil
 }
 
-// judge finds the files that already hold all that the copies hold together. The Merge
-// Engine decides that, so a new rule of the engine counts here with no change.
+// judge finds the files that already hold all that the copies hold together, and gives the merge
+// of all of them. The Merge Engine decides that, so a new rule of the engine counts here with no
+// change.
 //
 // A file holds all when a merge of all copies would bring it nothing:
 //   - no data: the merge of all copies holds the same as the merge of this file alone;
 //   - no decision: the merge of all copies asks nothing this file alone does not ask. A
 //     question both raise, such as two similar entries inside one file, is no difference
 //     between the copies. A question only the merge of all raises is one.
-func judge(files []*distinctFile, now time.Time) error {
+func judge(files []*distinctFile, now time.Time) (*merge.Result, error) {
 	key := merge.NewKey()
 	run := func(files ...*distinctFile) (*merge.Result, error) {
 		input := merge.Input{Now: now, Key: key}
@@ -256,17 +268,17 @@ func judge(files []*distinctFile, now time.Time) error {
 	}
 	all, err := run(files...)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	together := holdingsOf(all.Merged)
 	for _, file := range files {
 		alone, err := run(file)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		file.holdsAll = reflect.DeepEqual(holdingsOf(alone.Merged), together) && asksNothingNew(all.Questions, alone.Questions)
 	}
-	return nil
+	return all, nil
 }
 
 // asksNothingNew says that every question of the merge of all copies is also a question of
