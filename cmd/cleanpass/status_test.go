@@ -342,6 +342,14 @@ func TestStatusIgnoresTheServiceDataKeePassXCRenewsOnEverySave(t *testing.T) {
 	wantCode(t, testkit.Run(t, passwords(3), "status", a.Path, b.Path, c.Path), 0)
 }
 
+func TestStatusIgnoresTheOrderOfCustomData(t *testing.T) {
+	dir := t.TempDir()
+	a := rawCopy(t, dir, "a.kdbx", metaItems("first=1", "second=2"))
+	b := rawCopy(t, dir, "b.kdbx", metaItems("second=2", "first=1"))
+
+	wantCode(t, testkit.Run(t, passwords(2), "status", a.Path, b.Path), 0)
+}
+
 // A merge takes all root groups for one group, so their UUIDs tell nothing.
 func TestStatusTakesAllRootGroupsForOne(t *testing.T) {
 	dir := t.TempDir()
@@ -373,6 +381,29 @@ func TestStatusSeesAGroupThatMoved(t *testing.T) {
 	dir := t.TempDir()
 	old := rawCopy(t, dir, "old.kdbx", withGroups(false, v1))
 	moved := rawCopy(t, dir, "moved.kdbx", withGroups(true, v2))
+
+	wantAhead(t, testkit.Run(t, passwords(2), "status", old.Path, moved.Path), moved.Path, old.Path)
+}
+
+// withEntryInGroup gives PlainXML with one more group, and the entry in it or in the root
+// group, with the time of its last move. A move alone makes no new version here.
+func withEntryInGroup(inGroup bool, moved string) string {
+	start := strings.Index(testkit.PlainXML, "<Entry>")
+	end := strings.Index(testkit.PlainXML, "</Entry>") + len("</Entry>")
+	entry := strings.Replace(testkit.PlainXML[start:end], "</Times>", "<LocationChanged>"+moved+"</LocationChanged></Times>", 1)
+	group := "<Group><UUID>AAAAAAAAAAAAAAAAAAADAA==</UUID><Name>Перша</Name>"
+	if inGroup {
+		group += entry + "</Group>"
+	} else {
+		group = entry + group + "</Group>"
+	}
+	return testkit.PlainXML[:start] + group + testkit.PlainXML[end:]
+}
+
+func TestStatusSeesAnEntryThatMovedWithoutANewVersion(t *testing.T) {
+	dir := t.TempDir()
+	old := rawCopy(t, dir, "old.kdbx", withEntryInGroup(false, v1))
+	moved := rawCopy(t, dir, "moved.kdbx", withEntryInGroup(true, v2))
 
 	wantAhead(t, testkit.Run(t, passwords(2), "status", old.Path, moved.Path), moved.Path, old.Path)
 }
@@ -656,8 +687,21 @@ func TestStatusCountsSimilarEntriesOnlyWhenTheCopiesDifferInThem(t *testing.T) {
 	})
 }
 
+// A record about a deletion is data of the copy, with no entry left to ask about.
+func TestStatusSeesARecordAboutADeletionOnlyOneCopyHolds(t *testing.T) {
+	t.Skip("needs the rules about deletions of ticket #6 in the Merge Engine")
+	start := strings.Index(testkit.PlainXML, "<DeletedObjects>")
+	end := strings.Index(testkit.PlainXML, "</DeletedObjects>") + len("</DeletedObjects>")
+	dir := t.TempDir()
+	withRecord := rawCopy(t, dir, "with.kdbx", testkit.PlainXML)
+	without := rawCopy(t, dir, "without.kdbx", testkit.PlainXML[:start]+testkit.PlainXML[end:])
+
+	wantAhead(t, testkit.Run(t, passwords(2), "status", withRecord.Path, without.Path), withRecord.Path, without.Path)
+}
+
 // A deletion goes through a question of the Merge Engine, whichever copy made it. That the
-// copies differ must hold with or without the rules about deletions.
+// copies differ holds with or without the rules about deletions of ticket #6. With them the
+// exit code is 2, because the merge has a question neither copy has alone.
 func TestStatusSeesADeletion(t *testing.T) {
 	noBin := strings.Replace(testkit.RichXML(), "<RecycleBinEnabled>True<", "<RecycleBinEnabled>False<", 1)
 	for _, tc := range []struct {
