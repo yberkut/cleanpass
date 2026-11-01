@@ -14,6 +14,7 @@ func init() { addRule(phaseVersions, mergeVersions) }
 func mergeVersions(m *merger) {
 	for _, e := range m.sortedEntries() {
 		e.join(m.in.Key)
+		e.ruleMain = e.main()
 		m.settle(e)
 	}
 }
@@ -105,6 +106,8 @@ type entryState struct {
 	holdings []holding
 	// versions is the set of versions, the oldest first. The last one is the main version.
 	versions []*version
+	// ruleMain is the main version by the rule, before any answer of the human.
+	ruleMain *version
 	// group is the group the entry lies in. The newest LocationChanged decides.
 	group snapshot.UUID
 	// located is that LocationChanged.

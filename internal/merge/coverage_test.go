@@ -19,6 +19,7 @@ func TestScenariosReachEveryCase(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		seePairCases(seen, s.Copies, result)
 		for _, q := range result.Questions {
 			conflict, ok := q.Detail.(merge.Conflict)
 			if !ok {
@@ -86,6 +87,10 @@ func TestScenariosReachEveryCase(t *testing.T) {
 		"replaced version back on top", "versions exactly a day apart",
 		"a question only about a replaced main version", "a replaced main version in a conflict",
 		"a main version that moves with the key",
+		"pair by title and user name", "pair by user name and host only", "pair by both", "pair with the same password",
+		"pair with different passwords", "pair with the same content", "pair with the same password and another content",
+		"pair in another spelling", "pair in one copy", "pair over two copies", "entry in two pairs",
+		"pair with a conflict about an entry", "question about several pairs", "copies with different root groups",
 	} {
 		if seen[want] == 0 {
 			t.Errorf("no scenario reaches the case %q", want)

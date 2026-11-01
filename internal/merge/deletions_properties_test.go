@@ -133,12 +133,13 @@ func TestPropertyQuestionsAboutDeletionsDoNotDisappear(t *testing.T) {
 }
 
 // TestPropertyOnlyTheAnswerDeleteRemovesAnEntry: an entry with a record goes with the answer
-// and with nothing else. Every entry that stays holds every version of every copy.
+// and with nothing else. Every entry that stays holds every version of every copy. A merged
+// pair has an entry leave too, which TestPropertyNoLossWithPairs covers.
 func TestPropertyOnlyTheAnswerDeleteRemovesAnEntry(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := mergetest.Scenarios().Draw(t, "scenario")
 		in := merge.Input{Copies: s.Copies, Now: s.Now, Key: drawKey(t)}
-		in.Decisions = drawDecisions(t, runOn(t, in).Questions)
+		in.Decisions = drawDecisions(t, withoutPairs(runOn(t, in).Questions))
 
 		merged := allEntries(runOn(t, in).Merged)
 
@@ -195,7 +196,7 @@ func TestPropertyTheAuditAcceptsOnlyTheAnswerDelete(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := mergetest.Scenarios().Draw(t, "scenario")
 		in := merge.Input{Copies: s.Copies, Now: s.Now, Key: drawKey(t)}
-		in.Decisions = drawDecisions(t, runOn(t, in).Questions)
+		in.Decisions = drawDecisions(t, withoutPairs(runOn(t, in).Questions))
 		copies := make([]*snapshot.Snapshot, len(s.Copies))
 		for i, c := range s.Copies {
 			copies[i] = c.Snapshot
@@ -234,7 +235,7 @@ func TestPropertyTheBinHoldsWhatStaysDeleted(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := mergetest.Scenarios().Draw(t, "scenario")
 		in := merge.Input{Copies: s.Copies, Now: s.Now, Key: drawKey(t)}
-		in.Decisions = drawDecisions(t, runOn(t, in).Questions)
+		in.Decisions = drawDecisions(t, withoutPairs(runOn(t, in).Questions))
 
 		result := runOn(t, in).Merged
 

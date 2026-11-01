@@ -166,13 +166,11 @@ func (m *merger) settleDeletion(e *entryState, records map[snapshot.UUID]record)
 // deletion makes the data of the question. It comes from the copies alone, so the question
 // stays the same whatever the human answers to another one.
 func (m *merger) deletion(e *entryState, r record) Deletion {
-	keys := e.originalKeys()
-	newest := slices.MaxFunc(keys, compareKeys)
 	d := Deletion{
 		Entry:    e.uuid,
-		Label:    labelOf(&e.find(newest).data),
+		Label:    labelOf(&e.ruleMain.data),
 		Deleted:  r.time,
-		Modified: lastChange(keys, newest),
+		Modified: lastChange(e.originalKeys(), e.ruleMain.key),
 		Recorded: sortedNames(r.copies),
 	}
 	for i := range e.holdings {

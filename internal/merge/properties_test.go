@@ -105,13 +105,15 @@ func TestPropertyAssociative(t *testing.T) {
 
 // TestPropertyIdempotent: merging the result with any of its copies, or with itself, changes
 // nothing, with or without decisions. It settles every conflict too: the only question left
-// is about a main version that this copy has replaced. One more kind waits for the memory of
-// decisions: a deletion asks again, and the same answer gives the same result.
+// is about a main version that this copy has replaced. Pairs stay out of this until the tool
+// remembers its decisions: without that, a merged pair comes back with an old copy, and a pair
+// that was kept apart asks again. A deletion asks again for the same reason, and the same answer
+// gives the same result.
 func TestPropertyIdempotent(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := mergetest.Scenarios().Draw(t, "scenario")
 		in := merge.Input{Copies: s.Copies, Now: s.Now, Key: drawKey(t)}
-		in.Decisions = drawDecisions(t, runOn(t, in).Questions)
+		in.Decisions = drawDecisions(t, withoutPairs(runOn(t, in).Questions))
 		result := runOn(t, in)
 		own := merge.Copy{Name: "result", Snapshot: result.Merged}
 		merged := allEntries(result.Merged)
@@ -120,7 +122,7 @@ func TestPropertyIdempotent(t *testing.T) {
 			pair := merge.Input{Copies: []merge.Copy{own, other}, Now: s.Now, Key: in.Key}
 			questions := runOn(t, pair).Questions
 			asked, deletions := conflictQuestions(questions), deletionQuestions(questions)
-			if len(asked)+len(deletions) != len(questions) {
+			if len(asked)+len(deletions) != len(withoutPairs(questions)) {
 				t.Errorf("the merge with %s asks something else: %s", other.Name, printed(questions))
 			}
 			for _, d := range in.Decisions {
@@ -190,6 +192,7 @@ type held struct {
 	history  map[versionID]bool
 	versions []*snapshot.EntryVersion
 	group    snapshot.UUID
+	atRoot   bool
 	inBin    bool
 	// recycled is the time the entry or a group around it went to the bin.
 	recycled time.Time
@@ -226,7 +229,7 @@ func heldEntries(copies []merge.Copy) map[snapshot.UUID][]held {
 		c.Snapshot.Root.Walk(func(g *snapshot.Group) {
 			for i := range g.Entries {
 				e := &g.Entries[i]
-				h := held{main: &e.EntryVersion, mainID: identify(&e.EntryVersion), history: map[versionID]bool{}, group: g.UUID}
+				h := held{main: &e.EntryVersion, mainID: identify(&e.EntryVersion), history: map[versionID]bool{}, group: g.UUID, atRoot: g == &c.Snapshot.Root}
 				if since, inBin := binned[g.UUID]; inBin {
 					h.inBin, h.recycled = true, since
 					if e.Times.LocationChanged.After(since) {
@@ -477,7 +480,8 @@ func wantGroupFromNewestMove(t *rapid.T, holdings []held, merged *snapshot.Snaps
 	t.Helper()
 	group := groupsWithEntry(merged, uuid)[0].UUID
 	for _, h := range holdings {
-		if h.group != group {
+		// All root groups are one group in the result, whatever their UUIDs.
+		if h.group != group && !(h.atRoot && group == merged.Root.UUID) {
 			continue
 		}
 		for _, v := range h.versions {

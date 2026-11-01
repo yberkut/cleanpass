@@ -55,6 +55,9 @@ type Result struct {
 	Questions []Question
 	// Report holds the events for the report, without any secret value, in a fixed order.
 	Report []Event
+	// Absorbed lists the entries that left the tree because a pair merged, sorted. All their
+	// versions are under the entry they went into.
+	Absorbed []Absorption
 }
 
 // Event is one thing the report can tell. Each rule defines its own event types.
@@ -119,6 +122,7 @@ type merger struct {
 	used      map[QuestionID]bool
 	questions []Question
 	report    []Event
+	absorbed  []Absorption
 	failure   error
 }
 
@@ -206,7 +210,7 @@ func (m *merger) finish() (*Result, error) {
 	slices.SortFunc(m.questions, func(a, b Question) int { return strings.Compare(string(a.ID), string(b.ID)) })
 	slices.SortStableFunc(m.report, func(a, b Event) int { return strings.Compare(a.sortKey(), b.sortKey()) })
 	merged := m.out
-	return &Result{Merged: &merged, Questions: m.questions, Report: m.report}, nil
+	return &Result{Merged: &merged, Questions: m.questions, Report: m.report, Absorbed: m.absorbed}, nil
 }
 
 // collectAttachments gives the bytes of every attachment the merged versions refer to.
