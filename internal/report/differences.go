@@ -60,6 +60,17 @@ func WriteDifferences(w io.Writer, facts merge.Facts) error {
 	return out.err
 }
 
+// WriteUnrelated warns that the copies look like different databases. Each group holds the paths
+// of the copies that look like one database.
+func WriteUnrelated(w io.Writer, groups [][]string) error {
+	out := &writer{w: w}
+	out.header(text.UnrelatedWarning)
+	for i, group := range groups {
+		out.line("  ", text.UnrelatedGroup(i+1, group))
+	}
+	return out.err
+}
+
 // byTitle orders a section, so a person finds an entry. The facts come in a fixed order, so the
 // same titles stay in a fixed order too.
 func byTitle[T any](items []T, title func(T) string) []T {

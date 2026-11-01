@@ -8,6 +8,7 @@ import (
 	"github.com/yberkut/cleanpass/internal/merge"
 	"github.com/yberkut/cleanpass/internal/report"
 	"github.com/yberkut/cleanpass/internal/session"
+	"github.com/yberkut/cleanpass/internal/snapshot"
 	"github.com/yberkut/cleanpass/internal/text"
 )
 
@@ -51,40 +52,104 @@ func runCompare(env Env, args []string) int {
 	}
 	markFreshest(passports)
 
-	merged, err := judge(files, time.Now())
+	now := time.Now()
+	snapshots := make([]*snapshot.Snapshot, len(files))
+	for i, file := range files {
+		snapshots[i] = file.snap
+		passports[i].FromTheFuture = stampFromTheFuture(file.snap, now)
+	}
+	merged, err := judge(files, now)
 	if err != nil {
 		return fail(env, text.StatusFailed)
 	}
 	facts := merged.Facts()
+	related := merge.RelatedGroups(snapshots)
 	if err := report.WritePassports(env.Stdout, passports); err != nil {
 		return exitError
 	}
 	if err := report.WriteDifferences(env.Stdout, facts); err != nil {
 		return exitError
 	}
-	return say(env, exitOK, append([]string{""}, nextStep(files, args, facts)...)...)
+	if len(related) > 1 {
+		if err := report.WriteUnrelated(env.Stdout, pathsOfGroups(related, copies)); err != nil {
+			return exitError
+		}
+	}
+	return say(env, exitOK, append([]string{""}, nextStep(files, args, facts, len(related) > 1)...)...)
 }
+
+// allowUnrelatedOption takes off the stop of merge on copies of different databases.
+const allowUnrelatedOption = "--allow-unrelated"
 
 // nextStep ends the report: how the copies stand, and the exact command to run next. It offers
 // no command that would not work, and none when there is nothing to do.
-func nextStep(files []*distinctFile, args []string, facts merge.Facts) []string {
+func nextStep(files []*distinctFile, args []string, facts merge.Facts, unrelated bool) []string {
 	if len(files) == 1 {
 		return []string{text.CompareOneCopy}
 	}
+	first := files[0].copies[0].Path
 	code, lines := standing(files)
 	if code != exitOK && len(facts.Entries)+len(facts.Deletions)+len(facts.Pairs) == 0 {
 		lines = append([]string{text.CompareOtherDifferences}, lines...)
 	}
-	command := []string{text.StatusNextCommand, "  " + mergeCommand(args, files[0].copies[0].Path)}
 	switch {
 	case slices.ContainsFunc(files, func(f *distinctFile) bool { return len(f.snap.FieldLosses) > 0 }):
 		return append(lines, text.StatusVerdictIsBlind, text.CompareMergeWouldStop)
 	case code == exitOK:
 		return append(lines, text.CompareNoCommandNeeded)
+	case unrelated:
+		return append(lines, text.CompareOnlyIfOneDatabase, text.StatusNextCommand, "  "+mergeCommand(args, first, allowUnrelatedOption))
 	case code == exitLags:
 		lines = append(lines, text.CompareMergeAnyway)
 	}
-	return append(lines, command...)
+	return append(lines, text.StatusNextCommand, "  "+mergeCommand(args, first))
+}
+
+func pathsOfGroups(groups [][]int, copies []session.Copy) [][]string {
+	result := make([][]string, len(groups))
+	for i, group := range groups {
+		for _, at := range group {
+			result[i] = append(result[i], copies[at].Path)
+		}
+	}
+	return result
+}
+
+// stampFromTheFuture gives the newest time stamp of the copy if it lies after now, and zero
+// otherwise. A clock leaves its mark on all stamps, so this looks further than LastChange: also
+// at a read and at the service data of a save, which are no change. An expiry date does not
+// count, because a person sets it in the future on purpose.
+func stampFromTheFuture(s *snapshot.Snapshot, now time.Time) time.Time {
+	newest := s.LastChange()
+	see := func(t time.Time) {
+		if t.After(newest) {
+			newest = t
+		}
+	}
+	seeData := func(items []snapshot.CustomDataItem) {
+		for i := range items {
+			see(items[i].LastModification)
+		}
+	}
+	seeVersion := func(v *snapshot.EntryVersion) {
+		see(v.Times.LastAccess)
+		seeData(v.CustomData)
+	}
+	seeData(s.Meta.CustomData)
+	s.Root.Walk(func(g *snapshot.Group) {
+		see(g.Times.LastAccess)
+		seeData(g.CustomData)
+		for i := range g.Entries {
+			seeVersion(&g.Entries[i].EntryVersion)
+			for j := range g.Entries[i].History {
+				seeVersion(&g.Entries[i].History[j])
+			}
+		}
+	})
+	if newest.After(now) {
+		return newest
+	}
+	return time.Time{}
 }
 
 // markFreshest marks every copy with the newest change inside the database. Copies

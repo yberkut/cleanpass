@@ -17,7 +17,22 @@ const (
 	CompareMergeWouldStop = "Наступної команди немає: злиття цих копій зупиниться на даних, яких тула не вміє зберегти, і обходу цієї зупинки немає."
 	// CompareOtherDifferences explains a verdict no section of the report accounts for.
 	CompareOtherDifferences = "Головні версії записів збігаються. Копії різняться історією записів, групами або налаштуваннями бази."
+	// CompareOnlyIfOneDatabase stands in front of a command that takes off the stop on different databases.
+	CompareOnlyIfOneDatabase = "Різні бази зливати не треба. Лише якщо це копії однієї бази, злийте їх із опцією, яка знімає цей захист."
+
+	// UnrelatedWarning stands in front of the groups of copies that look like different databases.
+	UnrelatedWarning = "Попередження: копії схожі на різні бази: вони не мають спільного UUID кореневої групи чи запису і мають мало схожих записів. Злиття таких копій зупиниться. Копії, схожі між собою:"
 )
+
+// UnrelatedGroup names the copies that look like one database.
+func UnrelatedGroup(number int, paths []string) string {
+	return fmt.Sprintf("Група %d: %s", number, strings.Join(paths, ", "))
+}
+
+// FutureStampWarning says that a copy holds a time stamp after the current time.
+func FutureStampWarning(stamp string) string {
+	return fmt.Sprintf("Попередження: у цій копії є часова мітка з майбутнього: %s. Годинник системи, де змінювали цю копію, міг бути збитий, тому її позначка найсвіжішої теж може бути хибною.", stamp)
+}
 
 // The headers of the sections about differences in the report of compare.
 const (
