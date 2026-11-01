@@ -11,6 +11,7 @@ import (
 
 	"pgregory.net/rapid"
 
+	"github.com/yberkut/cleanpass/internal/lossaudit"
 	"github.com/yberkut/cleanpass/internal/merge"
 	"github.com/yberkut/cleanpass/internal/merge/mergetest"
 	"github.com/yberkut/cleanpass/internal/snapshot"
@@ -146,10 +147,10 @@ func TestPropertyNoAnswerChangesTheQuestionsAboutPairs(t *testing.T) {
 	})
 }
 
-// TestPropertyAMergedPairLosesNothing: this is the property "no losses" under answers about
-// pairs. Each entry holds exactly the versions of itself and of the entries it took in, each
-// once, the newest by the clock on top. Each absorbed entry is gone from the tree.
-func TestPropertyAMergedPairLosesNothing(t *testing.T) {
+// TestPropertyAMergedPairHoldsExactlyItsVersions: each entry holds the versions of itself and of
+// the entries it took in, each once and nothing else, the newest by the clock on top. Each absorbed
+// entry is gone from the tree, and a merge of the result with itself does not bring it back.
+func TestPropertyAMergedPairHoldsExactlyItsVersions(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := mergetest.Scenarios().Draw(t, "scenario")
 		in := merge.Input{Copies: s.Copies, Now: s.Now, Key: drawKey(t)}
@@ -200,16 +201,17 @@ func TestPropertyAMergedPairLosesNothing(t *testing.T) {
 				t.Errorf("entry %s: main version has time %s, newest is %s", uuid, e.Times.LastModification, newest[uuid])
 			}
 		}
-		wantAllAttachmentsThere(t, result.Merged)
 
 		again := runOn(t, merge.Input{Copies: []merge.Copy{{Name: "result", Snapshot: result.Merged}}, Now: s.Now, Key: in.Key})
 		wantSameSnapshot(t, again.Merged, result.Merged)
 	})
 }
 
-// TestPropertyAllAnswersTogetherLoseNothing: answers about conflicts and pairs add versions and
-// move them, and no version of the input is gone after them.
-func TestPropertyAllAnswersTogetherLoseNothing(t *testing.T) {
+// TestPropertyNoLossWithPairs is the property "no losses" of the spec, proved by the Loss Audit:
+// with any answers about conflicts and pairs, nothing of the input is gone. The audit lets the
+// versions of an absorbed entry move only because the result names that entry.
+func TestPropertyNoLossWithPairs(t *testing.T) {
+	merges := 0
 	rapid.Check(t, func(t *rapid.T) {
 		s := mergetest.Scenarios().Draw(t, "scenario")
 		in := merge.Input{Copies: s.Copies, Now: s.Now, Key: drawKey(t)}
@@ -217,38 +219,27 @@ func TestPropertyAllAnswersTogetherLoseNothing(t *testing.T) {
 
 		result := runOn(t, in)
 
-		into := map[snapshot.UUID]snapshot.UUID{}
-		for _, a := range result.Absorbed {
-			into[a.Absorbed] = a.Into
+		copies := make([]*snapshot.Snapshot, len(s.Copies))
+		for i, c := range s.Copies {
+			copies[i] = c.Snapshot
 		}
-		merged := allEntries(result.Merged)
-		for uuid, holdings := range heldEntries(s.Copies) {
-			final, wasAbsorbed := into[uuid]
-			if !wasAbsorbed {
-				final = uuid
-			}
-			got := idsOf(versionsOfEntry(merged[final]))
-			for _, h := range holdings {
-				for id := range idsOf(h.versions) {
-					if !got[id] {
-						t.Errorf("a version of entry %s is not in entry %s", uuid, final)
-					}
-				}
+		allowed := lossaudit.Allowed{Absorbed: map[snapshot.UUID]snapshot.UUID{}}
+		for _, a := range result.Absorbed {
+			allowed.Absorbed[a.Absorbed] = a.Into
+		}
+		losses := lossaudit.Audit(lossaudit.Input{Copies: copies, Result: result.Merged, Allowed: allowed})
+		if len(losses) != 0 {
+			t.Errorf("the audit found losses: %+v", losses)
+		}
+		if len(result.Absorbed) > 0 {
+			merges++
+			if len(lossaudit.Audit(lossaudit.Input{Copies: copies, Result: result.Merged})) == 0 {
+				t.Errorf("the entries %v left the tree, and the audit saw no change", result.Absorbed)
 			}
 		}
 	})
-}
-
-func wantAllAttachmentsThere(t *rapid.T, merged *snapshot.Snapshot) {
-	t.Helper()
-	for _, e := range allEntries(merged) {
-		for _, v := range versionsOfEntry(e) {
-			for _, a := range v.Attachments {
-				if _, ok := merged.Attachments[a.ID]; !ok {
-					t.Errorf("entry %s refers to an attachment with no bytes", e.UUID)
-				}
-			}
-		}
+	if merges == 0 {
+		t.Error("no scenario merged a pair, so the property says nothing about pairs")
 	}
 }
 
