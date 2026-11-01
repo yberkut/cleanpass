@@ -199,18 +199,6 @@ func TestCompareNamesWhatDiffersAndNoValue(t *testing.T) {
 	}
 }
 
-func TestCompareSaysSoWhenOnlyTheTimeOfAVersionDiffers(t *testing.T) {
-	dir := t.TempDir()
-	a := rawCopy(t, dir, "a.kdbx", entryWith(v1, ""))
-	b := rawCopy(t, dir, "b.kdbx", entryWith(v3, ""))
-
-	got := testkit.Run(t, passwords(2), "compare", a.Path, b.Path)
-
-	wantLines(t, section(t, got.Stdout, versionsDispute),
-		"    "+a.Path+": змінено "+localTime(t, v1)+"; цієї версії немає в історії інших копій; вміст як у версії, що стане головною",
-	)
-}
-
 func TestCompareWritesTheSameDifferencesInAnyOrderOfTheCopies(t *testing.T) {
 	dir := t.TempDir()
 	a := rawCopy(t, dir, "a.kdbx", withVersions(v2, v1))
@@ -230,7 +218,7 @@ func TestCompareKeepsATitleOnOneLine(t *testing.T) {
 	const forged = "Запис&#10;Наступна команда:&#10;  підроблена"
 	dir := t.TempDir()
 	a := rawCopy(t, dir, "a.kdbx", strings.Replace(testkit.PlainXML, "<Value>Запис<", "<Value>"+forged+"<", 1))
-	b := rawCopy(t, dir, "b.kdbx", strings.Replace(entryWith(v3, ""), "<Value>Запис<", "<Value>"+forged+"<", 1))
+	b := rawCopy(t, dir, "b.kdbx", strings.Replace(entryWith(v3, fields("Notes", "нові")), "<Value>Запис<", "<Value>"+forged+"<", 1))
 
 	got := testkit.Run(t, passwords(2), "compare", a.Path, b.Path)
 
@@ -249,7 +237,7 @@ func TestCompareShowsOnlyTheHostOfAURL(t *testing.T) {
 	field := "<String><Key>URL</Key><Value>" + url + "</Value></String>"
 	dir := t.TempDir()
 	a := rawCopy(t, dir, "a.kdbx", entryWith(v1, field))
-	b := rawCopy(t, dir, "b.kdbx", entryWith(v3, field))
+	b := rawCopy(t, dir, "b.kdbx", entryWith(v3, field+fields("Notes", "нові")))
 
 	got := testkit.Run(t, passwords(2), "compare", a.Path, b.Path)
 
@@ -262,9 +250,9 @@ func TestCompareShowsOnlyTheHostOfAURL(t *testing.T) {
 
 func TestCompareMarksAnEntryWithoutATitleByItsUUID(t *testing.T) {
 	dir := t.TempDir()
-	untitled := strings.Replace(entryWith(v1, ""), "<String><Key>Title</Key><Value>Запис</Value></String>", "", 1)
-	a := rawCopy(t, dir, "a.kdbx", untitled)
-	b := rawCopy(t, dir, "b.kdbx", strings.Replace(untitled, v1, v3, 1))
+	const title = "<String><Key>Title</Key><Value>Запис</Value></String>"
+	a := rawCopy(t, dir, "a.kdbx", strings.Replace(entryWith(v1, ""), title, "", 1))
+	b := rawCopy(t, dir, "b.kdbx", strings.Replace(entryWith(v3, fields("Notes", "нові")), title, "", 1))
 
 	got := testkit.Run(t, passwords(2), "compare", a.Path, b.Path)
 

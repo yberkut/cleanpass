@@ -106,7 +106,7 @@ func TestCompareShowsNoProtectedTitleOrLogin(t *testing.T) {
 	}
 	dir := t.TempDir()
 	a := newCopy(t, dir, "a.kdbx", xml)
-	b := newCopy(t, dir, "b.kdbx", strings.Replace(xml, "2026-03-01T10:00:03Z", "2026-03-20T10:00:03Z", 1))
+	b := newCopy(t, dir, "b.kdbx", strings.NewReplacer("2026-03-01T10:00:03Z", "2026-03-20T10:00:03Z", "SECRET-MARKER-друге", "SECRET-MARKER-нове").Replace(xml))
 
 	got := testkit.Run(t, passwords(2), "compare", a.Path, b.Path)
 
