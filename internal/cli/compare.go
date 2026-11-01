@@ -38,6 +38,8 @@ func runCompare(env Env, args []string) int {
 			LastChange: snap.LastChange(),
 			Stats:      snap.Stats(),
 			Format:     snap.Format,
+
+			FieldLosses: snap.FieldLosses,
 		})
 	}
 	markFreshest(passports)

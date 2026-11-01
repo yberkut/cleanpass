@@ -23,6 +23,8 @@ type Passport struct {
 	Stats      snapshot.Stats
 	Format     snapshot.Format
 	Freshest   bool
+	// FieldLosses is what a save of this copy would not keep. It holds no values.
+	FieldLosses []snapshot.FieldLoss
 }
 
 const timeLayout = "2006-01-02 15:04:05 -07:00"
@@ -64,7 +66,27 @@ func writePassport(w io.Writer, number int, p *Passport) error {
 			return err
 		}
 	}
-	return table.Flush()
+	if err := table.Flush(); err != nil {
+		return err
+	}
+	return WriteFieldLosses(w, p.FieldLosses)
+}
+
+// WriteFieldLosses writes the warning of the field guard and names every path. It writes
+// nothing when there is nothing to lose.
+func WriteFieldLosses(w io.Writer, losses []snapshot.FieldLoss) error {
+	if len(losses) == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintln(w, "  "+text.FieldLossWarning); err != nil {
+		return err
+	}
+	for _, loss := range losses {
+		if _, err := fmt.Fprintln(w, "    "+text.FieldLossLine(loss.Path, loss.InFile, loss.Kept)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func formatTime(t time.Time) string {

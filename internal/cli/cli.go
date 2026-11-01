@@ -118,6 +118,16 @@ func describeFileError(path string, err error) string {
 		return text.NoPasswordGiven(path)
 	case errors.Is(err, gateway.ErrNotKDBX):
 		return text.NotADatabase(path)
+	case errors.Is(err, gateway.ErrKDFUnknown):
+		return text.KDFUnknown(path)
+	case errors.Is(err, gateway.ErrKDFVersion):
+		return text.KDFVersion(path)
+	case errors.Is(err, gateway.ErrKDFKeyed):
+		return text.KDFKeyed(path)
+	case errors.Is(err, gateway.ErrKDFLimits):
+		return text.KDFLimits(path)
+	case errors.Is(err, gateway.ErrEmptyTime):
+		return text.EmptyTime(path)
 	case errors.Is(err, gateway.ErrCorrupt):
 		return text.DatabaseDamaged(path)
 	case errors.Is(err, fs.ErrNotExist):

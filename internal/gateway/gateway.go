@@ -27,6 +27,9 @@ var (
 	ErrNotKDBX = errors.New("not a KDBX 3 or 4 file")
 	// ErrCorrupt means the file looks like a database, but it cannot be read.
 	ErrCorrupt = errors.New("database file is damaged or uses an unsupported format")
+	// ErrEmptyTime means the file holds a time element without a value. A save in
+	// KeePassXC fills it in.
+	ErrEmptyTime = errors.New("a time element is empty")
 )
 
 // Credentials are the keys of one copy.
@@ -40,7 +43,7 @@ type Credentials struct {
 
 const signatureSize = 12
 
-// Check tells, without any key, whether the file can be a database. Errors from the
+// Check tells, without any key, whether the tool can read the file. Errors from the
 // file system are returned as they are, so errors.Is works with fs.ErrNotExist.
 func Check(path string) error {
 	file, err := os.Open(path)
@@ -48,18 +51,24 @@ func Check(path string) error {
 		return err
 	}
 	defer file.Close()
-	header := make([]byte, signatureSize)
-	_, err = io.ReadFull(file, header)
+	signature := make([]byte, signatureSize)
+	_, err = io.ReadFull(file, signature)
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return ErrNotKDBX
 	}
 	if err != nil {
 		return err
 	}
-	if !hasKDBXSignature(header) {
+	// The rest gets read only for a file that promises to be a database.
+	if !hasKDBXSignature(signature) {
 		return ErrNotKDBX
 	}
-	return nil
+	rest, err := io.ReadAll(file)
+	if err != nil {
+		return err
+	}
+	_, err = ReadHeader(append(signature, rest...))
+	return err
 }
 
 func hasKDBXSignature(header []byte) bool {
@@ -91,13 +100,20 @@ func readKeyFile(path string) ([]byte, error) {
 }
 
 // Open reads a copy for reading only and gives its Snapshot.
-func Open(path string, creds Credentials) (*snapshot.Snapshot, error) {
+func Open(path string, creds Credentials) (snap *snapshot.Snapshot, err error) {
+	// The library panics on some content that passed the hash checks. A damaged file
+	// must end in an error. What the panic says stays out of it: it comes from the file.
+	defer func() {
+		if recover() != nil {
+			snap, err = nil, fmt.Errorf("%w: the library panicked", ErrCorrupt)
+		}
+	}()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	if !hasKDBXSignature(data) {
-		return nil, ErrNotKDBX
+	if _, err := ReadHeader(data); err != nil {
+		return nil, err
 	}
 	libCreds, err := newLibraryCredentials(creds)
 	if err != nil {
@@ -107,15 +123,24 @@ func Open(path string, creds Credentials) (*snapshot.Snapshot, error) {
 	db := gokeepasslib.NewDatabase()
 	db.Credentials = libCreds
 	if err := gokeepasslib.NewDecoder(bytes.NewReader(data)).Decode(db); err != nil {
-		return nil, decodeError(err)
+		return nil, decodeError(err, db)
 	}
 	if db.Content == nil || db.Content.Meta == nil || db.Content.Root == nil {
 		return nil, fmt.Errorf("%w: no Meta or Root element", ErrCorrupt)
 	}
+	losses, err := guardFields(db)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrCorrupt, err)
+	}
 	if err := db.UnlockProtectedEntries(); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrCorrupt, err)
 	}
-	return fromDatabase(db)
+	snap, err = fromDatabase(db)
+	if err != nil {
+		return nil, err
+	}
+	snap.FieldLosses = losses
+	return snap, nil
 }
 
 func newLibraryCredentials(creds Credentials) (*gokeepasslib.DBCredentials, error) {
@@ -136,9 +161,12 @@ func newLibraryCredentials(creds Credentials) (*gokeepasslib.DBCredentials, erro
 
 // decodeError sorts the errors of the library. It marks a wrong password only by the
 // text of the message, because the library keeps those two errors private.
-func decodeError(err error) error {
+func decodeError(err error, db *gokeepasslib.Database) error {
 	if strings.HasPrefix(err.Error(), "Wrong password?") {
 		return ErrWrongCredentials
+	}
+	if hasEmptyTime(db) {
+		return ErrEmptyTime
 	}
 	return fmt.Errorf("%w: %w", ErrCorrupt, err)
 }

@@ -223,6 +223,7 @@ func TestCompareOpensEveryCipherAndKDF(t *testing.T) {
 				if strings.Contains(got.Stderr, "Неправильний") {
 					t.Errorf("false message about the password:\n%s", got.Stderr)
 				}
+				wantNoFieldLossWarning(t, got)
 				block := passports(t, got.Stdout, db.Path)[db.Path]
 				wantField(t, block, "Шифр", cipher.name)
 				wantField(t, block, "KDF", kdf.want)
@@ -241,6 +242,7 @@ func TestCompareReadsKDBX3(t *testing.T) {
 	if got.Code != 0 {
 		t.Fatalf("exit code %d\nstderr:\n%s", got.Code, got.Stderr)
 	}
+	wantNoFieldLossWarning(t, got)
 	block := passports(t, got.Stdout, db.Path)[db.Path]
 	wantField(t, block, "Формат", "KDBX 3.1")
 	wantField(t, block, "Шифр", "AES-256")

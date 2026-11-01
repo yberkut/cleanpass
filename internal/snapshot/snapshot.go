@@ -38,6 +38,19 @@ type Snapshot struct {
 	Deletions []Deletion
 	// Attachments holds the bytes of every attachment that an entry version refers to.
 	Attachments map[AttachmentID]Attachment
+	// FieldLosses is the verdict of the field guard: what the file holds and a save would
+	// not keep. status warns about it and merge stops on it, with no way around.
+	FieldLosses []FieldLoss
+}
+
+// FieldLoss says that a save would keep less data at Path than the file holds. It names
+// the place only and never holds a value.
+type FieldLoss struct {
+	// Path is the place of the data: KeePassFile/Root/Group/Future for an element,
+	// KeePassFile/Root/Group@Future for an attribute.
+	Path string
+	// InFile and Kept count the pieces of data at Path now and after a save.
+	InFile, Kept int
 }
 
 // Format says how the file is stored.
