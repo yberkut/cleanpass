@@ -41,6 +41,9 @@ type Snapshot struct {
 	// FieldLosses is the verdict of the field guard: what the file holds and a save would
 	// not keep. status warns about it and merge stops on it, with no way around.
 	FieldLosses []FieldLoss
+	// FileDigest is the SHA-256 of the file bytes this Snapshot was read from. A hash taken
+	// later could not tell whether the file changed before or after the reading.
+	FileDigest [sha256.Size]byte
 }
 
 // FieldLoss says that a save would keep less data at Path than the file holds. It names

@@ -407,6 +407,7 @@ func wantUkrainian(t *testing.T, stdout, stderr string, paths ...string) {
 		"cleanpass": true, "compare": true, "status": true, "file": true, "help": true, "key": true,
 		"KDBX": true, "KDF": true, "AES": true, "ChaCha": true, "Twofish": true, "Argon": true,
 		"Enter": true, "stdin": true, "KeePass": true, "KeePassXC": true, "verbose": true, "sync": true,
+		"merge": true, "output": true,
 	}
 	for _, output := range []string{stdout, stderr} {
 		for _, path := range paths {

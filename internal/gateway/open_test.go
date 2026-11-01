@@ -2,6 +2,7 @@ package gateway_test
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"os"
 	"path/filepath"
 	"slices"
@@ -22,6 +23,17 @@ func richSnapshot(t *testing.T) (*snapshot.Snapshot, testkit.DB) {
 		t.Fatal(err)
 	}
 	return snap, db
+}
+
+func TestASnapshotKnowsTheHashOfItsFile(t *testing.T) {
+	snap, db := richSnapshot(t)
+	content, err := os.ReadFile(db.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.FileDigest != sha256.Sum256(content) {
+		t.Error("the snapshot holds another hash")
+	}
 }
 
 func at(t *testing.T, rfc3339 string) time.Time {
