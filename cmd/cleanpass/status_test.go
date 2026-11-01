@@ -689,7 +689,6 @@ func TestStatusCountsSimilarEntriesOnlyWhenTheCopiesDifferInThem(t *testing.T) {
 
 // A record about a deletion is data of the copy, with no entry left to ask about.
 func TestStatusSeesARecordAboutADeletionOnlyOneCopyHolds(t *testing.T) {
-	t.Skip("needs the rules about deletions of ticket #6 in the Merge Engine")
 	start := strings.Index(testkit.PlainXML, "<DeletedObjects>")
 	end := strings.Index(testkit.PlainXML, "</DeletedObjects>") + len("</DeletedObjects>")
 	dir := t.TempDir()
@@ -699,9 +698,8 @@ func TestStatusSeesARecordAboutADeletionOnlyOneCopyHolds(t *testing.T) {
 	wantAhead(t, testkit.Run(t, passwords(2), "status", withRecord.Path, without.Path), withRecord.Path, without.Path)
 }
 
-// A deletion goes through a question of the Merge Engine, whichever copy made it. That the
-// copies differ holds with or without the rules about deletions of ticket #6. With them the
-// exit code is 2, because the merge has a question neither copy has alone.
+// A deletion goes through a question of the Merge Engine, whichever copy made it. The exit code
+// is 2, because the merge has a question neither copy has alone.
 func TestStatusSeesADeletion(t *testing.T) {
 	noBin := strings.Replace(testkit.RichXML(), "<RecycleBinEnabled>True<", "<RecycleBinEnabled>False<", 1)
 	for _, tc := range []struct {
@@ -717,10 +715,7 @@ func TestStatusSeesADeletion(t *testing.T) {
 			deleted := copyOf(t, kept, "deleted.kdbx")
 			deleted.CLI(t, "rm", workEntry)
 
-			got := testkit.Run(t, passwords(2), "status", kept.Path, deleted.Path)
-			if got.Code != 1 && got.Code != 2 {
-				t.Errorf("exit code %d, want a difference\nstdout:\n%s\nstderr:\n%s", got.Code, got.Stdout, got.Stderr)
-			}
+			wantCode(t, testkit.Run(t, passwords(2), "status", kept.Path, deleted.Path), 2)
 		})
 	}
 
