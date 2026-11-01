@@ -23,11 +23,11 @@ const (
 	// OutcomeConflict means a true conflict with a gap of at least 24 hours: the newer
 	// version became main, and there is no question.
 	OutcomeConflict
-	// OutcomeAsked means a true conflict with a question. The newer version is main,
-	// which is also the rule without an answer.
+	// OutcomeAsked means a question about the order of the versions: a true conflict the
+	// clock cannot decide, or a main version a copy has replaced. The maximum by time and
+	// fingerprint is main, which is also the rule without an answer.
 	OutcomeAsked
-	// OutcomeChosen means a true conflict in which the answer of the human made a new
-	// version the main one.
+	// OutcomeChosen means the answer of the human made a new version the main one.
 	OutcomeChosen
 )
 
@@ -138,10 +138,7 @@ func (e *entryState) outcomeWithoutConflict(copies int) Outcome {
 // change makes the event about the entry, from the state after all its decisions.
 func (e *entryState) change(outcome Outcome, copies []Copy) EntryChange {
 	main := e.main()
-	change := EntryChange{Entry: e.uuid, Label: labelOf(&main.data), Outcome: outcome}
-	for i := range e.holdings {
-		change.Replaced = change.Replaced || e.holdings[i].history[main.key]
-	}
+	change := EntryChange{Entry: e.uuid, Label: labelOf(&main.data), Outcome: outcome, Replaced: len(e.replacingMain()) > 0}
 	for i := range copies {
 		state := CopyState{Name: copies[i].Name}
 		for j := range e.holdings {

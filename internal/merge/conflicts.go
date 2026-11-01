@@ -10,15 +10,19 @@ import (
 // closeInTime is the gap below which the clocks of two systems cannot order two versions.
 const closeInTime = 24 * time.Hour
 
-// Conflict is the Detail of a question about versions no copy has ordered, while the
-// clock cannot order them either.
+// Conflict is the Detail of a question about the order of versions, when the histories of
+// the copies and the clock do not settle it together.
 type Conflict struct {
 	Entry snapshot.UUID
-	// Close says two of the versions are less than 24 hours apart.
+	// Close says two versions in conflict are less than 24 hours apart.
 	Close bool
-	// Future says one of the versions has a time after the current time.
+	// Future says a version in conflict has a time after the current time.
 	Future bool
-	// Versions are the answers, newest first.
+	// Replaced says a copy holds the newest version by the clock in its history, under
+	// another main version. The clock and that history disagree about the order.
+	Replaced bool
+	// Versions are the answers: first the main version by the rule of the maximum, which is
+	// what happens without an answer, then the others, newest first.
 	Versions []VersionView
 }
 
@@ -34,19 +38,22 @@ type VersionView struct {
 	Differences Difference
 }
 
-// settle sorts out what the main versions of the copies say about each other and, for a
-// conflict that the clock cannot decide, asks the human.
+// settle sorts out what the main versions of the copies say about each other. It asks the
+// human about a conflict the clock cannot decide, and about a main version that a copy has
+// replaced. One entry has one question at most, because two answers could contradict.
 func (m *merger) settle(e *entryState) {
 	disputed, near := e.disputed()
 	future := false
 	for _, k := range disputed {
 		future = future || k.time().After(m.in.Now)
 	}
+	replacing := e.replacingMain()
 	outcome := e.outcomeWithoutConflict(len(m.in.Copies))
 	switch {
-	case near || future:
+	case near || future || len(replacing) > 0:
 		outcome = OutcomeAsked
-		if m.askAboutConflict(e, disputed, near, future) {
+		detail := Conflict{Entry: e.uuid, Close: near, Future: future, Replaced: len(replacing) > 0}
+		if m.askAboutVersions(e, detail, slices.Concat(disputed, replacing)) {
 			outcome = OutcomeChosen
 		}
 	case len(disputed) > 0:
@@ -100,14 +107,27 @@ func (e *entryState) replaced(old, by versionKey) bool {
 	return false
 }
 
-// askAboutConflict asks the human and applies the answer. It says whether the answer made
-// a new version.
-func (m *merger) askAboutConflict(e *entryState, disputed []versionKey, near, future bool) bool {
-	answers := e.answers(disputed)
+// replacingMain gives the main versions of the copies that hold the main version of the
+// entry in their history. A history leaves out the main version of its own copy, so each of
+// these differs from it. Normally there are none: the newest version is no copy's old one.
+func (e *entryState) replacingMain() []versionKey {
+	var keys []versionKey
+	for i := range e.holdings {
+		if h := &e.holdings[i]; h.history[e.main().key] {
+			keys = append(keys, h.main)
+		}
+	}
+	return keys
+}
+
+// askAboutVersions fills the answers into the detail, asks the human and applies the answer.
+// It says whether the answer made a new version.
+func (m *merger) askAboutVersions(e *entryState, detail Conflict, asked []versionKey) bool {
+	answers := e.answers(asked)
 	first := &answers[0].data
-	views := make([]VersionView, len(answers))
+	detail.Versions = make([]VersionView, len(answers))
 	for i, v := range answers {
-		views[i] = VersionView{
+		detail.Versions[i] = VersionView{
 			Modified:    v.key.time(),
 			Copies:      e.copiesWithMain(v.key),
 			Label:       labelOf(&v.data),
@@ -117,17 +137,18 @@ func (m *merger) askAboutConflict(e *entryState, disputed []versionKey, near, fu
 	choice, answered := m.ask(Question{
 		ID:      QuestionID("conflict:" + e.uuid.String()),
 		Choices: len(answers),
-		Detail:  Conflict{Entry: e.uuid, Close: near, Future: future, Versions: views},
+		Detail:  detail,
 	})
 	return answered && e.choose(answers[choice], m.in.Key, m.in.Now)
 }
 
-// answers lists the possible answers, newest first. The first one is what happens without
-// an answer, so it is always the main version, even if that one is not in conflict: the
-// clock can put a version on top that a copy has already replaced.
-func (e *entryState) answers(disputed []versionKey) []*version {
+// answers lists the possible answers. The first one is what happens without an answer, so it
+// is always the main version, even if the question is not about it. The others follow,
+// newest first, each once.
+func (e *entryState) answers(asked []versionKey) []*version {
+	slices.SortFunc(asked, compareKeys)
 	result := []*version{e.main()}
-	for _, key := range slices.Backward(disputed) {
+	for _, key := range slices.Backward(slices.Compact(asked)) {
 		if key != e.main().key {
 			result = append(result, e.find(key))
 		}
