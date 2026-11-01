@@ -2,6 +2,7 @@ package merge_test
 
 import (
 	"cmp"
+	"maps"
 	"reflect"
 	"slices"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"pgregory.net/rapid"
 
+	"github.com/yberkut/cleanpass/internal/lossaudit"
 	"github.com/yberkut/cleanpass/internal/merge"
 	"github.com/yberkut/cleanpass/internal/merge/mergetest"
 	"github.com/yberkut/cleanpass/internal/snapshot"
@@ -137,8 +139,8 @@ func TestPropertyOnlyTheAnswerDeleteRemovesAnEntry(t *testing.T) {
 	})
 }
 
-// TestPropertyRecordsOfTheResult: the result has the newest record of everything that is gone,
-// sorted, and no record against an entry or a group it holds.
+// TestPropertyRecordsOfTheResult: the result has the newest record about each object, sorted,
+// whatever the human answers.
 func TestPropertyRecordsOfTheResult(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := mergetest.Scenarios().Draw(t, "scenario")
@@ -147,24 +149,54 @@ func TestPropertyRecordsOfTheResult(t *testing.T) {
 
 		result := runOn(t, in).Merged
 
-		exists := map[snapshot.UUID]bool{}
-		result.Root.Walk(func(g *snapshot.Group) {
-			exists[g.UUID] = true
-			for i := range g.Entries {
-				exists[g.Entries[i].UUID] = true
-			}
-		})
 		var want []snapshot.Deletion
 		for uuid, stamp := range newestRecords(s.Copies) {
-			if !exists[uuid] {
-				want = append(want, snapshot.Deletion{UUID: uuid, Time: stamp})
-			}
+			want = append(want, snapshot.Deletion{UUID: uuid, Time: stamp})
 		}
 		slices.SortFunc(want, func(a, b snapshot.Deletion) int {
 			return cmp.Compare(a.UUID.String(), b.UUID.String())
 		})
 		if !reflect.DeepEqual(result.Deletions, want) {
 			t.Errorf("records = %s, want %s", printed(result.Deletions), printed(want))
+		}
+	})
+}
+
+// TestPropertyTheAuditAcceptsOnlyTheAnswerDelete: with the entries the decisions name, the Loss
+// Audit finds nothing in a result with any answers. Without them it finds exactly the entries
+// that went, so the answer delete is the only way for data to go.
+func TestPropertyTheAuditAcceptsOnlyTheAnswerDelete(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		s := mergetest.Scenarios().Draw(t, "scenario")
+		in := merge.Input{Copies: s.Copies, Now: s.Now, Key: drawKey(t)}
+		in.Decisions = drawDecisions(t, runOn(t, in).Questions)
+		copies := make([]*snapshot.Snapshot, len(s.Copies))
+		for i, c := range s.Copies {
+			copies[i] = c.Snapshot
+		}
+
+		result := runOn(t, in).Merged
+
+		allowed := lossaudit.Allowed{Deleted: slices.Collect(maps.Keys(allowedToGo(in.Decisions)))}
+		if losses := lossaudit.Audit(lossaudit.Input{Copies: copies, Result: result, Allowed: allowed}); len(losses) != 0 {
+			t.Errorf("the audit found losses with the decisions: %+v", losses)
+		}
+		gone := map[snapshot.UUID]bool{}
+		merged := allEntries(result)
+		for uuid := range heldEntries(s.Copies) {
+			if merged[uuid] == nil {
+				gone[uuid] = true
+			}
+		}
+		found := map[snapshot.UUID]bool{}
+		for _, loss := range lossaudit.Audit(lossaudit.Input{Copies: copies, Result: result}) {
+			if loss.Kind != lossaudit.VersionLost && loss.Kind != lossaudit.AttachmentLost {
+				t.Errorf("the audit found a loss of another kind: %+v", loss)
+			}
+			found[loss.Object] = true
+		}
+		if !maps.Equal(found, gone) {
+			t.Errorf("without decisions the audit found losses in %v, the entries that went are %v", found, gone)
 		}
 	})
 }

@@ -73,18 +73,19 @@ func TestARecordInTheSameCopyAsTheEntryAsksToo(t *testing.T) {
 	theDeletion(t, mergeOf(t, both))
 }
 
-// A record that stayed next to a kept entry would ask again in the next merge, and KeePassXC
-// itself would apply it in its own merge.
-func TestWithoutAnAnswerTheEntryStaysAndNoRecordStandsAgainstIt(t *testing.T) {
+// The record stays too, so the next merge asks again until the human answers.
+func TestWithoutAnAnswerTheEntryStaysAndTheNextMergeAsksAgain(t *testing.T) {
 	deleted := recorded(database(), snapshot.Deletion{UUID: mailID, Time: hours(9)}, snapshot.Deletion{UUID: goneID, Time: hours(3)})
 	held := database(entry(version(hours(2), "kept"), version(hours(1), "old")))
 
 	merged := mergeOf(t, deleted, held).Merged
 
 	wantVersions(t, onlyEntry(t, merged), "kept", "old")
-	if want := []snapshot.Deletion{{UUID: goneID, Time: hours(3)}}; !reflect.DeepEqual(merged.Deletions, want) {
+	want := []snapshot.Deletion{{UUID: mailID, Time: hours(9)}, {UUID: goneID, Time: hours(3)}}
+	if !reflect.DeepEqual(merged.Deletions, want) {
 		t.Errorf("records = %+v, want %+v", merged.Deletions, want)
 	}
+	theDeletion(t, mergeOf(t, merged))
 }
 
 func TestAnEntryNoCopyHasARecordAboutIsNewAndAsksNothing(t *testing.T) {
@@ -599,8 +600,9 @@ func TestAnEntryMovedOutOfADeletedGroupStaysWhereItIsInTheNextMerge(t *testing.T
 	}
 }
 
-func TestARecordAboutAGroupThatStaysIsGone(t *testing.T) {
-	deleted := recorded(database(), snapshot.Deletion{UUID: homeID, Time: hours(9)}, snapshot.Deletion{UUID: workID, Time: hours(9)})
+// The questions are about entries. Every group stays, and so does the record about it.
+func TestARecordAboutAGroupAsksNothingAndTheGroupStays(t *testing.T) {
+	deleted := recorded(database(), snapshot.Deletion{UUID: homeID, Time: hours(9)})
 	held := &snapshot.Snapshot{Root: snapshot.Group{UUID: rootID, Name: "Root", Groups: []snapshot.Group{{UUID: homeID, Name: "Home"}}}}
 
 	result := mergeOf(t, deleted, held)
@@ -609,7 +611,7 @@ func TestARecordAboutAGroupThatStaysIsGone(t *testing.T) {
 	if home, _ := groupOf(result.Merged, homeID); home == nil {
 		t.Error("the group is gone")
 	}
-	if want := []snapshot.Deletion{{UUID: workID, Time: hours(9)}}; !reflect.DeepEqual(result.Merged.Deletions, want) {
+	if want := []snapshot.Deletion{{UUID: homeID, Time: hours(9)}}; !reflect.DeepEqual(result.Merged.Deletions, want) {
 		t.Errorf("records = %+v, want %+v", result.Merged.Deletions, want)
 	}
 }

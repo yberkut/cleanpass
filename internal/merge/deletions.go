@@ -78,18 +78,21 @@ func (c DeletionChange) sortKey() string { return deletionPrefix + c.Entry.Strin
 
 // mergeDeletions joins the records about deleted objects and asks about every entry a record
 // stands against. Only the answer of the human removes an entry.
+//
+// Every record stays in the result, also next to an entry the human keeps. So the next merge
+// asks again until the human answers, and an old copy cannot bring a deleted entry back as a
+// new one. A group raises no question and never goes away: the merge keeps every group.
 func mergeDeletions(m *merger) {
 	m.bins = m.readBins()
 	records := m.joinRecords()
+	for _, id := range slices.SortedFunc(maps.Keys(records), compareUUIDs) {
+		m.out.Deletions = append(m.out.Deletions, snapshot.Deletion{UUID: id, Time: records[id].time})
+	}
 	asked := map[snapshot.UUID]bool{}
 	for _, e := range m.sortedEntries() {
 		if m.settleDeletion(e, records) {
 			asked[e.uuid] = true
 		}
-	}
-	m.dropRecordsAboutGroups(records)
-	for _, id := range slices.SortedFunc(maps.Keys(records), compareUUIDs) {
-		m.out.Deletions = append(m.out.Deletions, snapshot.Deletion{UUID: id, Time: records[id].time})
 	}
 	m.report = slices.DeleteFunc(m.report, func(event Event) bool {
 		change, isChange := event.(EntryChange)
@@ -125,9 +128,6 @@ func (m *merger) joinRecords() map[snapshot.UUID]record {
 
 // settleDeletion asks about the entry if a record stands against it, or if a copy holds it in
 // the recycle bin and another one outside, and applies the answer. It says whether it asked.
-//
-// A kept entry has no record in the result: it would ask again in the next merge, and
-// KeePassXC would apply it in its own merge.
 func (m *merger) settleDeletion(e *entryState, records map[snapshot.UUID]record) bool {
 	r, isRecorded := records[e.uuid]
 	inBin, outside := m.bins.count(e)
@@ -156,22 +156,11 @@ func (m *merger) settleDeletion(e *entryState, records map[snapshot.UUID]record)
 		outcome = DeletionApplied
 		e.recycled = true
 		m.placeBy(e, true)
-	default:
-		delete(records, e.uuid)
-		if hasBoth {
-			m.placeBy(e, false)
-		}
+	case hasBoth:
+		m.placeBy(e, false)
 	}
 	m.tell(DeletionChange{Deletion: detail, Outcome: outcome})
 	return true
-}
-
-// dropRecordsAboutGroups removes the records about groups a copy still holds. No copy can lose
-// a group by a deletion: the merge keeps every group, so a record would only stand against it.
-func (m *merger) dropRecordsAboutGroups(records map[snapshot.UUID]record) {
-	for i := range m.in.Copies {
-		m.in.Copies[i].Snapshot.Root.Walk(func(g *snapshot.Group) { delete(records, g.UUID) })
-	}
 }
 
 // deletion makes the data of the question. It comes from the copies alone, so the question
