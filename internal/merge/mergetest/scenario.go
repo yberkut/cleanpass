@@ -39,6 +39,8 @@ type Scenario struct {
 type world struct {
 	forks  []*fork
 	lastID uint32
+	// bin is the UUID of the recycle bin, once a copy has one.
+	bin snapshot.UUID
 }
 
 // fork is one copy while it grows.
@@ -127,6 +129,9 @@ func (w *world) newDatabase(t *rapid.T) *snapshot.Snapshot {
 			UUID: w.newUUID(),
 			Name: rapid.SampledFrom(groupNames).Draw(t, "group name"),
 		})
+	}
+	if rapid.Bool().Draw(t, "recycle bin before the fork") {
+		w.makeBin(s, start.Add(-90*day))
 	}
 	for range rapid.IntRange(1, 6).Draw(t, "entries") {
 		group := rapid.IntRange(0, len(s.Root.Groups)).Draw(t, "group")

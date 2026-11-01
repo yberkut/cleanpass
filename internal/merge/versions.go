@@ -112,6 +112,8 @@ type entryState struct {
 	group snapshot.UUID
 	// located is that LocationChanged.
 	located time.Time
+	// recycled says the entry stays deleted, so it has to lie in the recycle bin.
+	recycled bool
 }
 
 // holding is what one copy holds of an entry.

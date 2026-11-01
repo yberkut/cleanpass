@@ -208,8 +208,9 @@ func TestPropertyAMergedPairHoldsExactlyItsVersions(t *testing.T) {
 }
 
 // TestPropertyNoLossWithPairs is the property "no losses" of the spec, proved by the Loss Audit:
-// with any answers about conflicts and pairs, nothing of the input is gone. The audit lets the
-// versions of an absorbed entry move only because the result names that entry.
+// with any answers about conflicts, pairs and deletions, nothing of the input is gone. The audit
+// lets the versions of an absorbed entry move only because the result names that entry, and an
+// entry go only because a decision names it.
 func TestPropertyNoLossWithPairs(t *testing.T) {
 	merges := 0
 	rapid.Check(t, func(t *rapid.T) {
@@ -223,7 +224,10 @@ func TestPropertyNoLossWithPairs(t *testing.T) {
 		for i, c := range s.Copies {
 			copies[i] = c.Snapshot
 		}
-		allowed := lossaudit.Allowed{Absorbed: map[snapshot.UUID]snapshot.UUID{}}
+		allowed := lossaudit.Allowed{
+			Absorbed: map[snapshot.UUID]snapshot.UUID{},
+			Deleted:  slices.Collect(maps.Keys(allowedToGo(in.Decisions))),
+		}
 		for _, a := range result.Absorbed {
 			allowed.Absorbed[a.Absorbed] = a.Into
 		}

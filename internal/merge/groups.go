@@ -25,15 +25,21 @@ type groupState struct {
 // the result, so no entry loses its place.
 func mergeGroups(m *merger) {
 	for i := range m.in.Copies {
-		m.seeGroup(snapshot.UUID{}, &m.in.Copies[i].Snapshot.Root)
+		c := &m.in.Copies[i]
+		m.seeGroup(c, snapshot.UUID{}, &c.Snapshot.Root)
 	}
 }
 
-func (m *merger) seeGroup(parent snapshot.UUID, g *snapshot.Group) {
+func (m *merger) seeGroup(c *Copy, parent snapshot.UUID, g *snapshot.Group) {
 	id := m.groupID(g.UUID)
 	fields := *g
 	fields.UUID = id
 	fields.Entries, fields.Groups = nil, nil
+	if _, inBin := m.bins.inBin[c][id]; inBin && m.bins.outside[id] {
+		// Another copy holds the group outside the bin, so the group stays there, and the
+		// move to the bin has no say. The zero values lose to any place the other copy gives.
+		parent, fields.Times.LocationChanged, fields.PreviousParentGroup = snapshot.UUID{}, time.Time{}, nil
+	}
 
 	state := m.groups[id]
 	if state == nil {
@@ -42,7 +48,7 @@ func (m *merger) seeGroup(parent snapshot.UUID, g *snapshot.Group) {
 		state.join(fields, parent)
 	}
 	for i := range g.Groups {
-		m.seeGroup(id, &g.Groups[i])
+		m.seeGroup(c, id, &g.Groups[i])
 	}
 }
 
