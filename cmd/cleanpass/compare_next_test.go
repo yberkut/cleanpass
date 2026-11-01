@@ -133,15 +133,17 @@ func theCommandLine(t *testing.T, stdout string) string {
 	return strings.TrimSpace(lines[at+1])
 }
 
-// keyedCopies gives copies whose names and key file need quotes in any shell.
+// keyedCopies gives copies whose names and key file need quotes in any shell. The first copy gets
+// its edit last: in the same second the first one on the command line counts as the newest too,
+// so the result of a merge always opens with its keys.
 func keyedCopies(t *testing.T, dir string) (first, second, keyName string) {
 	t.Helper()
 	first, second, keyName = "копія один.kdbx", "друга 'копія'.kdbx", "мій ключ.key"
 	key := testkit.NewKeyFile(t, filepath.Join(dir, keyName), 1)
 	a := testkit.DB{Path: filepath.Join(dir, first), Password: testkit.Password, KeyFile: key}.Import(t, testkit.RichXML())
 	b := testkit.DB{Path: filepath.Join(dir, second), Password: testkit.Password}.Import(t, testkit.RichXML())
-	a.CLI(t, "edit", "--notes", "зміна в a", thirdEntry)
 	b.CLI(t, "edit", "--notes", "зміна в b", workEntry)
+	a.CLI(t, "edit", "--notes", "зміна в a", thirdEntry)
 	return first, second, keyName
 }
 
