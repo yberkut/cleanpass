@@ -414,13 +414,64 @@ func TestStatusSeesAnEntryThatMovedWithoutANewVersion(t *testing.T) {
 // Status follows the engine and says the copies diverged. That is safe, as nothing gets lost
 // on the way to a merge, but the older copy only lags.
 func TestStatusCallsAnEditOfAnEntryWithCustomDataALag(t *testing.T) {
-	t.Skip("the Merge Engine sees a true conflict here: see the report of ticket #10")
 	dir := t.TempDir()
 	old := newCopy(t, dir, "old.kdbx", testkit.RichXML())
 	edited := copyOf(t, old, "edited.kdbx")
 	edited.CLI(t, "edit", "--notes", "нова нотатка", mailEntry)
 
 	wantAhead(t, testkit.Run(t, passwords(2), "status", old.Path, edited.Path), edited.Path, old.Path)
+}
+
+// browserData is the custom data of mailEntry in the fixture.
+const browserData = `<CustomData><Item><Key>KPXC_BROWSER_SETTINGS</Key><Value>{"Allow":["example.com"]}</Value><LastModificationTime>2026-02-09T10:00:00Z</LastModificationTime></Item></CustomData>`
+
+func richXMLWithBrowserData(t *testing.T, replacement string) string {
+	t.Helper()
+	if !strings.Contains(testkit.RichXML(), browserData) {
+		t.Fatal("no custom data of the entry in the fixture")
+	}
+	return strings.Replace(testkit.RichXML(), browserData, replacement, 1)
+}
+
+// With the same time and the same content, the smaller version goes into the larger one, so the
+// merge has as many versions as the copy that lacks the data. It still gets something new.
+func TestStatusSeesCustomDataOnlyOneCopyHolds(t *testing.T) {
+	dir := t.TempDir()
+	full := newCopy(t, dir, "full.kdbx", testkit.RichXML())
+	bare := newCopy(t, dir, "bare.kdbx", richXMLWithBrowserData(t, ""))
+
+	wantAhead(t, testkit.Run(t, passwords(2), "status", full.Path, bare.Path), full.Path, bare.Path)
+}
+
+func TestStatusCallsCustomDataWhereNeitherHoldsTheOtherDiverged(t *testing.T) {
+	dir := t.TempDir()
+	first := newCopy(t, dir, "first.kdbx", testkit.RichXML())
+	second := newCopy(t, dir, "second.kdbx", richXMLWithBrowserData(t, strings.Replace(browserData, "example.com", "example.org", 1)))
+
+	wantCode(t, testkit.Run(t, passwords(2), "status", first.Path, second.Path), 2)
+}
+
+// A second edit: the copy with two edits holds the first edit without its custom data in the
+// history. It is ahead anyway, because the copy behind holds nothing else.
+func TestStatusCallsTwoEditsOfAnEntryWithCustomDataALag(t *testing.T) {
+	dir := t.TempDir()
+	once := newCopy(t, dir, "once.kdbx", testkit.RichXML())
+	once.CLI(t, "edit", "--notes", "перша", mailEntry)
+	twice := copyOf(t, once, "twice.kdbx")
+	twice.CLI(t, "edit", "--notes", "друга", mailEntry)
+
+	wantAhead(t, testkit.Run(t, passwords(2), "status", once.Path, twice.Path), twice.Path, once.Path)
+}
+
+// keepassxc-cli gives an entry a new time on a move to the bin, with the same content. The copies
+// then diverge over the deletion, and not over a conflict in a version.
+func TestStatusAsksForAMergeAfterAMoveToTheBin(t *testing.T) {
+	dir := t.TempDir()
+	kept := newCopy(t, dir, "kept.kdbx", testkit.RichXML())
+	moved := copyOf(t, kept, "moved.kdbx")
+	moved.CLI(t, "rm", workEntry)
+
+	wantCode(t, testkit.Run(t, passwords(2), "status", kept.Path, moved.Path), 2)
 }
 
 func TestStatusSeesNoDifferenceBetweenFileFormats(t *testing.T) {

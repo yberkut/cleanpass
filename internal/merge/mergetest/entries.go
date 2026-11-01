@@ -50,9 +50,7 @@ var edits = []func(t *rapid.T, s *snapshot.Snapshot, v *snapshot.EntryVersion){
 	func(t *rapid.T, _ *snapshot.Snapshot, v *snapshot.EntryVersion) {
 		v.AutoType.Enabled = !v.AutoType.Enabled
 	},
-	func(t *rapid.T, _ *snapshot.Snapshot, v *snapshot.EntryVersion) {
-		v.CustomData = append(v.CustomData, snapshot.CustomDataItem{Key: "KPXC_BROWSER", Value: drawText(t)})
-	},
+	func(t *rapid.T, _ *snapshot.Snapshot, v *snapshot.EntryVersion) { setItem(t, v) },
 }
 
 func setField(v *snapshot.EntryVersion, key, value string, protected bool) {

@@ -121,16 +121,23 @@ func (m *merger) placeBy(e *entryState, inBin bool) {
 		if _, recycled := m.bins.recycled(h); recycled != inBin {
 			continue
 		}
-		e.find(h.main).takePlace(&h.entry.EntryVersion)
+		e.takePlace(h.main, &h.entry.EntryVersion)
 		located := h.entry.Times.LocationChanged
 		for j := range h.entry.History {
 			old := &h.entry.History[j]
-			e.find(m.in.Key.versionKey(old)).takePlace(old)
+			e.takePlace(m.in.Key.versionKey(old), old)
 			located = later(located, old.Times.LocationChanged)
 		}
 		if !placed || cmp.Or(located.Compare(e.located), compareUUIDs(h.group, e.group)) > 0 {
 			e.located, e.group, placed = located, h.group, true
 		}
+	}
+}
+
+// takePlace gives the versions that stand for a held version the place of that version.
+func (e *entryState) takePlace(key versionKey, held *snapshot.EntryVersion) {
+	for _, k := range e.standIns(key, held) {
+		e.find(k).takePlace(held)
 	}
 }
 

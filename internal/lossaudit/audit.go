@@ -3,7 +3,7 @@
 // It compares the input copies with the result and lists what is gone. It works from the
 // words of the spec and from the snapshots alone, and it uses no code of the Merge Engine,
 // so a bug in the engine cannot hide itself here. Only an explicit decision of the human lets
-// data go, see Allowed.
+// data go, see Allowed. A version that another one holds entirely is not gone, see keptVersions.
 //
 // A Loss names a thing and never holds a value, so a list of losses can reach the Report.
 package lossaudit
@@ -143,14 +143,14 @@ func walkVersions(e *snapshot.Entry, visit func(*snapshot.EntryVersion)) {
 }
 
 // checkVersions looks for each version of each entry of each copy in the result. A version
-// in the history and a main version count the same.
+// in the history and a main version count the same, see keptVersions.covers.
 func (a *auditor) checkVersions() {
-	kept := map[snapshot.UUID]map[string]bool{}
+	kept := map[snapshot.UUID]keptVersions{}
 	walkEntries(a.in.Result, func(e *snapshot.Entry) {
 		if kept[e.UUID] == nil {
-			kept[e.UUID] = map[string]bool{}
+			kept[e.UUID] = keptVersions{}
 		}
-		walkVersions(e, func(v *snapshot.EntryVersion) { kept[e.UUID][versionIdentity(v)] = true })
+		walkVersions(e, kept[e.UUID].add)
 	})
 	for _, c := range a.in.Copies {
 		walkEntries(c, func(e *snapshot.Entry) {
@@ -159,8 +159,7 @@ func (a *auditor) checkVersions() {
 				return
 			}
 			walkVersions(e, func(v *snapshot.EntryVersion) {
-				identity := versionIdentity(v)
-				if !slices.ContainsFunc(places, func(p snapshot.UUID) bool { return kept[p][identity] }) {
+				if !slices.ContainsFunc(places, func(p snapshot.UUID) bool { return kept[p].covers(v) }) {
 					a.lose(Loss{Kind: VersionLost, Object: e.UUID, Time: v.Times.LastModification.UTC()})
 				}
 			})

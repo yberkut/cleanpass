@@ -39,6 +39,10 @@ func compareKeys(a, b versionKey) int {
 // time gives the time of the version in UTC.
 func (k versionKey) time() time.Time { return time.Unix(k.seconds, int64(k.nanos)).UTC() }
 
+func (k versionKey) sameTime(other versionKey) bool {
+	return k.seconds == other.seconds && k.nanos == other.nanos
+}
+
 // version is one member of the set of versions of an entry.
 type version struct {
 	key versionKey
@@ -121,10 +125,30 @@ type holding struct {
 	copy  *Copy
 	group snapshot.UUID
 	entry *snapshot.Entry
-	// main and history are the keys of the versions in this copy. A version that is both
-	// main and history counts only as main.
-	main    versionKey
+	// main is the key of the main version in this copy.
+	main versionKey
+	// stands holds the versions of the set that stand for main: main itself, or the versions
+	// that absorbed it.
+	stands []versionKey
+	// history holds the versions of the set that stand for the older versions of this copy. An
+	// older version that shares one with main counts only as main.
 	history map[versionKey]bool
+}
+
+// readOrder finds what the versions of this copy became in the set. older holds the keys of
+// the history of the copy.
+func (h *holding) readOrder(e *entryState, older []versionKey) {
+	h.stands = e.standIns(h.main, &h.entry.EntryVersion)
+	h.history = make(map[versionKey]bool, len(older))
+	for i, key := range older {
+		stands := e.standIns(key, &h.entry.History[i])
+		if slices.ContainsFunc(stands, func(k versionKey) bool { return slices.Contains(h.stands, k) }) {
+			continue
+		}
+		for _, k := range stands {
+			h.history[k] = true
+		}
+	}
 }
 
 // hold records that a copy holds an entry in a group.
@@ -139,42 +163,98 @@ func (m *merger) hold(c *Copy, group snapshot.UUID, e *snapshot.Entry) {
 
 // join builds the set of versions and the location from the holdings.
 func (e *entryState) join(key Key) {
+	older := make([][]versionKey, len(e.holdings))
 	for i := range e.holdings {
 		h := &e.holdings[i]
 		h.main = key.versionKey(&h.entry.EntryVersion)
 		e.put(h.main, h.entry.EntryVersion)
 		located := h.entry.Times.LocationChanged
-		h.history = make(map[versionKey]bool, len(h.entry.History))
+		older[i] = make([]versionKey, len(h.entry.History))
 		for j := range h.entry.History {
 			old := &h.entry.History[j]
-			oldKey := key.versionKey(old)
-			e.put(oldKey, *old)
-			if oldKey != h.main {
-				h.history[oldKey] = true
-			}
+			older[i][j] = key.versionKey(old)
+			e.put(older[i][j], *old)
 			located = later(located, old.Times.LocationChanged)
 		}
 		if i == 0 || cmp.Or(located.Compare(e.located), compareUUIDs(h.group, e.group)) > 0 {
 			e.located, e.group = located, h.group
 		}
 	}
+	for i := range e.holdings {
+		e.holdings[i].readOrder(e, older[i])
+	}
 }
 
-// put adds a version to the set. The same version in several places joins into one.
+// put adds a version to the set. The same version in several places joins into one, and a
+// version that another one absorbs leaves the set with only its usage left behind, see absorbs.
+// So the set never depends on the order in which the versions arrive.
 func (e *entryState) put(key versionKey, data snapshot.EntryVersion) {
-	i, found := slices.BinarySearchFunc(e.versions, key, func(v *version, key versionKey) int {
-		return compareKeys(v.key, key)
-	})
-	if !found {
-		e.versions = slices.Insert(e.versions, i, &version{key: key, data: data})
+	i, found := e.search(key)
+	if found {
+		kept := e.versions[i]
+		joined := usageOf(&kept.data).join(usageOf(&data))
+		if bytes.Compare(exactOf(&data), exactOf(&kept.data)) < 0 {
+			kept.data = data
+		}
+		joined.applyTo(&kept.data)
 		return
 	}
-	kept := e.versions[i]
-	joined := usageOf(&kept.data).join(usageOf(&data))
-	if bytes.Compare(exactOf(&data), exactOf(&kept.data)) < 0 {
-		kept.data = data
+	if peers := e.sameTime(i, key); len(peers) > 0 {
+		absorbed := false
+		for _, peer := range peers {
+			if absorbs(&peer.data, &data) {
+				usageOf(&peer.data).join(usageOf(&data)).applyTo(&peer.data)
+				absorbed = true
+			}
+		}
+		if absorbed {
+			return
+		}
+		e.versions = slices.DeleteFunc(e.versions, func(v *version) bool {
+			if !v.key.sameTime(key) || !absorbs(&data, &v.data) {
+				return false
+			}
+			usageOf(&data).join(usageOf(&v.data)).applyTo(&data)
+			return true
+		})
+		i, _ = e.search(key)
 	}
-	joined.applyTo(&kept.data)
+	e.versions = slices.Insert(e.versions, i, &version{key: key, data: data})
+}
+
+func (e *entryState) search(key versionKey) (int, bool) {
+	return slices.BinarySearchFunc(e.versions, key, func(v *version, key versionKey) int {
+		return compareKeys(v.key, key)
+	})
+}
+
+// sameTime gives the versions with the time of the key. at is where the key lies or would lie.
+func (e *entryState) sameTime(at int, key versionKey) []*version {
+	first, end := at, at
+	for first > 0 && e.versions[first-1].key.sameTime(key) {
+		first--
+	}
+	for end < len(e.versions) && e.versions[end].key.sameTime(key) {
+		end++
+	}
+	return e.versions[first:end]
+}
+
+// standIns gives the versions of the set that stand for a version a copy holds: the version
+// itself, or the versions that absorbed it. There can be several: two versions can each hold
+// more than this one and differ from each other.
+func (e *entryState) standIns(key versionKey, held *snapshot.EntryVersion) []versionKey {
+	at, found := e.search(key)
+	if found {
+		return []versionKey{key}
+	}
+	var keys []versionKey
+	for _, peer := range e.sameTime(at, key) {
+		if absorbs(&peer.data, held) {
+			keys = append(keys, peer.key)
+		}
+	}
+	return keys
 }
 
 // main gives the main version.
@@ -182,17 +262,24 @@ func (e *entryState) main() *version { return e.versions[len(e.versions)-1] }
 
 // result gives the merged entry.
 //
-// Each version gets the largest usage of itself and of all older versions. A newer
-// version inherits its usage from the older ones anyway, so on a plain history this
-// changes nothing. It makes the main version hold the maximum over all versions, and it
-// makes the result of a merge the same whether the copies come at once or in parts.
+// Each version gets the largest usage of itself and of all versions that are not newer. A newer
+// version inherits its usage from the older ones anyway, so on a plain history this changes
+// nothing. It makes the main version hold the maximum over all versions, and it makes the result
+// of a merge the same whether the copies come at once or in parts. Versions with the same time
+// share their usage: nothing orders them, and the usage of a version that went into one of them
+// must not depend on which part of the copies met it first.
 func (e *entryState) result() snapshot.Entry {
 	versions := make([]snapshot.EntryVersion, len(e.versions))
 	var running usage
-	for i, v := range e.versions {
-		running = running.join(usageOf(&v.data))
-		versions[i] = v.data
-		running.applyTo(&versions[i])
+	for i := 0; i < len(e.versions); {
+		end := i
+		for ; end < len(e.versions) && e.versions[end].key.sameTime(e.versions[i].key); end++ {
+			running = running.join(usageOf(&e.versions[end].data))
+		}
+		for ; i < end; i++ {
+			versions[i] = e.versions[i].data
+			running.applyTo(&versions[i])
+		}
 	}
 	last := len(versions) - 1
 	return snapshot.Entry{UUID: e.uuid, EntryVersion: versions[last], History: versions[:last]}

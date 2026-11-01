@@ -191,7 +191,7 @@ func (m *merger) deletion(e *entryState, r record) Deletion {
 func (e *entryState) originalKeys() []versionKey {
 	var keys []versionKey
 	for i := range e.holdings {
-		keys = append(keys, e.holdings[i].main)
+		keys = append(keys, e.holdings[i].stands...)
 		keys = slices.AppendSeq(keys, maps.Keys(e.holdings[i].history))
 	}
 	return keys

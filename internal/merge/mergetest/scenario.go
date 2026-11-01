@@ -16,6 +16,7 @@ package mergetest
 
 import (
 	"fmt"
+	"maps"
 	"time"
 	"unicode"
 
@@ -77,13 +78,14 @@ func Scenarios() *rapid.Generator[Scenario] {
 				clock:    start.Add(rapid.SampledFrom(clockErrors).Draw(t, "clock error")),
 			})
 		}
-		for range rapid.IntRange(0, 10).Draw(t, "moves") {
+		for range rapid.IntRange(0, 14).Draw(t, "moves") {
 			f := rapid.SampledFrom(w.forks).Draw(t, "fork")
 			m := rapid.SampledFrom(moves).Draw(t, "move")
 			m.apply(t, w, f)
 		}
 		scenario := Scenario{Now: start.Add(rapid.SampledFrom(ages).Draw(t, "age"))}
 		for _, f := range w.forks {
+			f.dropUnusedAttachments()
 			scenario.Copies = append(scenario.Copies, merge.Copy{Name: f.name, Snapshot: f.snapshot})
 		}
 		return scenario
@@ -102,6 +104,24 @@ var (
 	// ages holds how long after the fork the merge runs.
 	ages = []time.Duration{day, 7 * day, 30 * day, 60 * day}
 )
+
+// dropUnusedAttachments removes the bytes no version refers to any more, as a save does. The
+// Gateway stops a file with such bytes, so no copy with them reaches the engine.
+func (f *fork) dropUnusedAttachments() {
+	used := map[snapshot.AttachmentID]bool{}
+	for _, ref := range f.entries() {
+		e := ref.entry()
+		for _, a := range e.Attachments {
+			used[a.ID] = true
+		}
+		for i := range e.History {
+			for _, a := range e.History[i].Attachments {
+				used[a.ID] = true
+			}
+		}
+	}
+	maps.DeleteFunc(f.snapshot.Attachments, func(id snapshot.AttachmentID, _ snapshot.Attachment) bool { return !used[id] })
+}
 
 // tick runs the clock of the fork and gives its time.
 func (f *fork) tick(t *rapid.T) time.Time {
@@ -153,6 +173,9 @@ func (w *world) newEntry(t *rapid.T, s *snapshot.Snapshot, before time.Time) sna
 		e.History = append(e.History, newVersion(t, s, created.Add(time.Duration(i)*time.Hour), created))
 	}
 	e.EntryVersion = newVersion(t, s, before, created)
+	if rapid.Bool().Draw(t, "custom data") {
+		setItem(t, &e.EntryVersion)
+	}
 	return e
 }
 

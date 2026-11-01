@@ -17,8 +17,9 @@ const (
 	outcomeSame Outcome = iota
 	// OutcomeNew means the copies that hold the entry agree, and another copy lacks it.
 	OutcomeNew
-	// OutcomeUpdated means the copies hold different main versions and their histories
-	// order them: a copy lags, and there is no question.
+	// OutcomeUpdated means the copies hold different main versions and nothing is in dispute:
+	// their histories order them, or a copy holds the same content with an older time, or with
+	// less custom data. A copy lags, and there is no question.
 	OutcomeUpdated
 	// OutcomeConflict means a true conflict with a gap of at least 24 hours: the newer
 	// version became main, and there is no question.
@@ -157,7 +158,7 @@ func (e *entryState) change(outcome Outcome, copies []Copy) EntryChange {
 
 func (e *entryState) isBehind(h *holding) bool {
 	for i := range e.holdings {
-		if e.holdings[i].history[h.main] {
+		if slices.ContainsFunc(h.stands, func(k versionKey) bool { return e.holdings[i].history[k] }) {
 			return true
 		}
 	}

@@ -193,9 +193,8 @@ func identify(v *snapshot.EntryVersion) versionID {
 
 // held is what one copy holds of an entry, as the spec sees it.
 type held struct {
-	main     *snapshot.EntryVersion
-	mainID   versionID
-	history  map[versionID]bool
+	main *snapshot.EntryVersion
+	// versions holds the main version first, and the history after it.
 	versions []*snapshot.EntryVersion
 	group    snapshot.UUID
 	atRoot   bool
@@ -235,7 +234,7 @@ func heldEntries(copies []merge.Copy) map[snapshot.UUID][]held {
 		c.Snapshot.Root.Walk(func(g *snapshot.Group) {
 			for i := range g.Entries {
 				e := &g.Entries[i]
-				h := held{main: &e.EntryVersion, mainID: identify(&e.EntryVersion), history: map[versionID]bool{}, group: g.UUID, atRoot: g == &c.Snapshot.Root}
+				h := held{main: &e.EntryVersion, group: g.UUID, atRoot: g == &c.Snapshot.Root}
 				if since, inBin := binned[g.UUID]; inBin {
 					h.inBin, h.recycled = true, since
 					if e.Times.LocationChanged.After(since) {
@@ -245,9 +244,6 @@ func heldEntries(copies []merge.Copy) map[snapshot.UUID][]held {
 				h.versions = append(h.versions, &e.EntryVersion)
 				for j := range e.History {
 					h.versions = append(h.versions, &e.History[j])
-					if id := identify(&e.History[j]); id != h.mainID {
-						h.history[id] = true
-					}
 				}
 				result[e.UUID] = append(result[e.UUID], h)
 			}
@@ -256,24 +252,129 @@ func heldEntries(copies []merge.Copy) map[snapshot.UUID][]held {
 	return result
 }
 
-// mustAsk says, from the words of the spec alone, whether the entry raises a question: two
-// main versions differ, no copy holds one of them behind the other, and they are less than
-// 24 hours apart or one of them comes from the future.
-func mustAsk(holdings []held, now time.Time) bool {
-	replaced := func(old, by versionID) bool {
-		for _, h := range holdings {
-			if h.mainID == by && h.history[old] {
-				return true
-			}
+// identifyContent is a version without its time.
+func identifyContent(v *snapshot.EntryVersion) versionID {
+	content := *v
+	content.Times.LastModification = time.Time{}
+	return identify(&content)
+}
+
+func customDataItems(v *snapshot.EntryVersion) map[snapshot.CustomDataItem]bool {
+	items := map[snapshot.CustomDataItem]bool{}
+	for _, item := range v.CustomData {
+		if !item.IsService() {
+			item.LastModification = time.Time{}
+			items[item] = true
 		}
+	}
+	return items
+}
+
+// goesInto says, from the words of the ticket alone, that a version is absorbed by another one:
+// the same time, the same content, and custom data that is a strict subset of the other.
+func goesInto(smaller, larger *snapshot.EntryVersion) bool {
+	withoutData := func(v *snapshot.EntryVersion) versionID {
+		bare := *v
+		bare.CustomData = nil
+		return identify(&bare)
+	}
+	less, more := customDataItems(smaller), customDataItems(larger)
+	if len(less) >= len(more) || withoutData(smaller) != withoutData(larger) {
 		return false
 	}
-	for i, a := range holdings {
-		for _, b := range holdings[i+1:] {
-			if a.mainID == b.mainID || replaced(a.mainID, b.mainID) || replaced(b.mainID, a.mainID) {
+	for item := range less {
+		if !more[item] {
+			return false
+		}
+	}
+	return true
+}
+
+// standing gives the versions that nothing absorbs.
+func standing(versions []*snapshot.EntryVersion) map[versionID]*snapshot.EntryVersion {
+	result := map[versionID]*snapshot.EntryVersion{}
+	for _, v := range versions {
+		if !slices.ContainsFunc(versions, func(other *snapshot.EntryVersion) bool { return goesInto(v, other) }) {
+			result[identify(v)] = v
+		}
+	}
+	return result
+}
+
+func versionsOfHoldings(holdings []held) []*snapshot.EntryVersion {
+	var versions []*snapshot.EntryVersion
+	for _, h := range holdings {
+		versions = append(versions, h.versions...)
+	}
+	return versions
+}
+
+// standIDs gives the IDs of the versions that stand for a version: the version, or those that
+// absorb it.
+func standIDs(v *snapshot.EntryVersion, standing map[versionID]*snapshot.EntryVersion) []versionID {
+	if standing[identify(v)] != nil {
+		return []versionID{identify(v)}
+	}
+	var ids []versionID
+	for id, other := range standing {
+		if goesInto(v, other) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// copyOrder is what one copy says about the order of the standing versions. An older version of
+// the copy that shares a standing version with its main version counts only as main.
+type copyOrder struct {
+	mains, behind map[versionID]bool
+}
+
+func ordersOf(holdings []held, tops map[versionID]*snapshot.EntryVersion) []copyOrder {
+	orders := make([]copyOrder, len(holdings))
+	for i, h := range holdings {
+		order := copyOrder{mains: map[versionID]bool{}, behind: map[versionID]bool{}}
+		for _, id := range standIDs(h.main, tops) {
+			order.mains[id] = true
+		}
+		for _, old := range h.versions[1:] {
+			ids := standIDs(old, tops)
+			if slices.ContainsFunc(ids, func(id versionID) bool { return order.mains[id] }) {
 				continue
 			}
-			first, second := a.main.Times.LastModification, b.main.Times.LastModification
+			for _, id := range ids {
+				order.behind[id] = true
+			}
+		}
+		orders[i] = order
+	}
+	return orders
+}
+
+// mustAsk says, from the words of the spec and the ticket alone, whether the entry raises a
+// question: two main versions differ in content, no copy holds one of them behind the other, and
+// they are less than 24 hours apart or one of them comes from the future. A main version with
+// less custom data stands for the versions that absorb it, and says nothing against any of them.
+func mustAsk(holdings []held, now time.Time) bool {
+	tops := standing(versionsOfHoldings(holdings))
+	orders := ordersOf(holdings, tops)
+	replaced := func(old, by versionID) bool {
+		return slices.ContainsFunc(orders, func(o copyOrder) bool { return o.mains[by] && o.behind[old] })
+	}
+	mains := map[versionID]bool{}
+	for _, o := range orders {
+		maps.Copy(mains, o.mains)
+	}
+	without := func(with, other versionID) bool {
+		return slices.ContainsFunc(orders, func(o copyOrder) bool { return o.mains[with] && !o.mains[other] })
+	}
+	ids := slices.Collect(maps.Keys(mains))
+	for i, a := range ids {
+		for _, b := range ids[i+1:] {
+			if identifyContent(tops[a]) == identifyContent(tops[b]) || !without(a, b) || !without(b, a) || replaced(a, b) || replaced(b, a) {
+				continue
+			}
+			first, second := tops[a].Times.LastModification, tops[b].Times.LastModification
 			gap := first.Sub(second)
 			if gap < 0 {
 				gap = -gap
@@ -287,12 +388,17 @@ func mustAsk(holdings []held, now time.Time) bool {
 }
 
 // mainIsReplaced says, from the words of the rule alone, that the chosen main version sits in
-// the history of a copy whose own main version is different. A held history leaves out the
-// main version of that copy.
+// the history of a copy whose own main version has other content.
 func mainIsReplaced(holdings []held, chosen versionID) bool {
-	for _, h := range holdings {
-		if h.history[chosen] {
-			return true
+	tops := standing(versionsOfHoldings(holdings))
+	for _, o := range ordersOf(holdings, tops) {
+		if !o.behind[chosen] {
+			continue
+		}
+		for id := range o.mains {
+			if identifyContent(tops[id]) != identifyContent(tops[chosen]) {
+				return true
+			}
 		}
 	}
 	return false
@@ -382,7 +488,7 @@ func idsOf(versions []*snapshot.EntryVersion) map[versionID]bool {
 }
 
 // TestPropertyTheSetOfVersionsIsTheUnion: the result holds exactly the versions of all copies,
-// each once, and the newest by the clock is main.
+// each once, apart from those another version absorbs, and the newest by the clock is main.
 func TestPropertyTheSetOfVersionsIsTheUnion(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := mergetest.Scenarios().Draw(t, "scenario")
@@ -391,9 +497,11 @@ func TestPropertyTheSetOfVersionsIsTheUnion(t *testing.T) {
 
 		for uuid, holdings := range heldEntries(s.Copies) {
 			want := map[versionID]bool{}
+			for id := range standing(versionsOfHoldings(holdings)) {
+				want[id] = true
+			}
 			newest := time.Time{}
 			for _, h := range holdings {
-				maps.Copy(want, idsOf(h.versions))
 				for _, v := range h.versions {
 					if v.Times.LastModification.After(newest) {
 						newest = v.Times.LastModification
@@ -528,11 +636,9 @@ func TestPropertyAnAnswerHolds(t *testing.T) {
 				t.Errorf("entry %s: the main version does not have the content of the version of %s", conflict.Entry, chosen)
 			}
 			got := idsOf(versionsOfEntry(e))
-			for _, h := range holdings[conflict.Entry] {
-				for id := range idsOf(h.versions) {
-					if !got[id] {
-						t.Errorf("entry %s lost an original version", conflict.Entry)
-					}
+			for id := range standing(versionsOfHoldings(holdings[conflict.Entry])) {
+				if !got[id] {
+					t.Errorf("entry %s lost an original version", conflict.Entry)
 				}
 			}
 			if d.Choice == 0 {
@@ -569,8 +675,11 @@ func TestPropertyNoSecretInQuestionsOrReport(t *testing.T) {
 
 		result := runOn(t, merge.Input{Copies: s.Copies, Now: s.Now, Key: drawKey(t)})
 
-		if text := printed(result.Questions) + printed(result.Report); strings.Contains(text, mergetest.SecretMarker) {
-			t.Errorf("a secret reached the questions or the report:\n%s", text)
+		text := printed(result.Questions) + printed(result.Report)
+		for _, marker := range []string{mergetest.SecretMarker, mergetest.CustomDataMarker} {
+			if strings.Contains(text, marker) {
+				t.Errorf("a value with the marker %s reached the questions or the report:\n%s", marker, text)
+			}
 		}
 	})
 }

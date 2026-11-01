@@ -10,16 +10,53 @@ import (
 	"github.com/yberkut/cleanpass/internal/snapshot"
 )
 
-// versionIdentity gives the identity of a version as the spec defines it: its time and its
-// content. Two versions with the same identity are one version.
+// keptVersions holds what a result keeps of one entry: for each identity without custom data,
+// the custom data of the versions with that identity.
+type keptVersions map[string][][]string
+
+func (k keptVersions) add(v *snapshot.EntryVersion) {
+	identity := identityWithoutCustomData(v)
+	k[identity] = append(k[identity], customDataForms(v.CustomData))
+}
+
+// covers says the version is in the result: the same version, or one that says all it says.
+//
+// The second way exists because KeePassXC leaves the custom data of an entry out of the history
+// version an edit makes: a version with the same time, the same content and custom data that
+// holds all of this one and more. Nothing else lets a version go without a decision.
+func (k keptVersions) covers(v *snapshot.EntryVersion) bool {
+	wanted := customDataForms(v.CustomData)
+	return slices.ContainsFunc(k[identityWithoutCustomData(v)], func(held []string) bool {
+		return set(held) == set(wanted) || holdsMore(held, wanted)
+	})
+}
+
+// holdsMore says held holds every item of wanted and at least one other, as sets.
+func holdsMore(held, wanted []string) bool {
+	items := map[string]bool{}
+	for _, item := range held {
+		items[item] = true
+	}
+	different := map[string]bool{}
+	for _, item := range wanted {
+		if !items[item] {
+			return false
+		}
+		different[item] = true
+	}
+	return len(different) < len(items)
+}
+
+// identityWithoutCustomData gives the identity of a version as the spec defines it, its time
+// and its content, apart from the custom data. keptVersions compares that part by itself.
 //
 // This is written from the spec, apart from the fingerprint of the Merge Engine, and it
 // stays in memory: it holds secret values in clear text, so no Loss carries it.
 //
 // The identity leaves out what the spec leaves out or a plain save can change: LastAccess,
-// UsageCount, LocationChanged, PreviousParentGroup, service custom data, the time of a custom
-// data item, the order of anything and the spelling of the tags.
-func versionIdentity(v *snapshot.EntryVersion) string {
+// UsageCount, LocationChanged, PreviousParentGroup, the order of anything and the spelling of
+// the tags. customDataForms leaves out service custom data and the time of a custom data item.
+func identityWithoutCustomData(v *snapshot.EntryVersion) string {
 	fields := make([]string, len(v.Fields))
 	for i := range v.Fields {
 		f := &v.Fields[i]
@@ -53,7 +90,6 @@ func versionIdentity(v *snapshot.EntryVersion) string {
 		number(v.AutoType.Obfuscation),
 		text(v.AutoType.DefaultSequence),
 		set(associations),
-		set(customDataForms(v.CustomData)),
 	)
 }
 

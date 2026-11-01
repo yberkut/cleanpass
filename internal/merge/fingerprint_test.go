@@ -62,9 +62,6 @@ var coveredChanges = []change{
 	}},
 	{"custom data value", "CustomData", func(v *snapshot.EntryVersion) { v.CustomData[0].Value = "other" }},
 	{"custom data key", "CustomData", func(v *snapshot.EntryVersion) { v.CustomData[0].Key = "other" }},
-	{"custom data added", "CustomData", func(v *snapshot.EntryVersion) {
-		v.CustomData = append(v.CustomData, snapshot.CustomDataItem{Key: "KPXC_BROWSER_NEW", Value: "1"})
-	}},
 }
 
 var notCoveredChanges = []change{
@@ -129,6 +126,17 @@ func TestTheFingerprintCoversTheContent(t *testing.T) {
 			}
 		})
 	}
+}
+
+// With the same time, more custom data absorbs the version with less, so this takes another
+// time to show that the fingerprint sees it: two main versions with the same fingerprint are
+// no conflict, and these two are.
+func TestTheFingerprintCoversAddedCustomData(t *testing.T) {
+	added := fullVersion()
+	added.CustomData = append(added.CustomData, snapshot.CustomDataItem{Key: "KPXC_BROWSER_NEW", Value: "1"})
+	added.Times.LastModification = hours(2)
+
+	theConflict(t, mergeOf(t, database(entry(fullVersion())), database(entry(added))))
 }
 
 func TestTheFingerprintLeavesOutWhatChangesWithoutAnEdit(t *testing.T) {

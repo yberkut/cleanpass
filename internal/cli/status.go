@@ -298,10 +298,14 @@ type groupHolding struct {
 // entryHolding counts the versions of an entry instead of naming them. The engine alone
 // knows what makes two versions the same, and without decisions it loses none. So the
 // merge of all holds every version of the merge of one file, and the same count means the
-// same versions.
+// same versions, apart from custom data: a version with less of it goes into one with more.
+//
+// In a history that is what KeePassXC writes on each edit, so it is no difference between the
+// copies. The custom data of the main version is in use, so a copy that lacks it does not hold all.
 type entryHolding struct {
-	group    snapshot.UUID
-	versions int
+	group      snapshot.UUID
+	versions   int
+	customData []snapshot.CustomDataItem
 }
 
 func holdingsOf(merged *snapshot.Snapshot) holdings {
@@ -327,7 +331,7 @@ func holdingsOf(merged *snapshot.Snapshot) holdings {
 		}
 		for i := range g.Entries {
 			e := &g.Entries[i]
-			result.entries[e.UUID] = entryHolding{group: id, versions: 1 + len(e.History)}
+			result.entries[e.UUID] = entryHolding{group: id, versions: 1 + len(e.History), customData: plainCustomData(e.CustomData)}
 		}
 	})
 	for i := range merged.Deletions {

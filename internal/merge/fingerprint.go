@@ -44,6 +44,56 @@ func contentOf(v *snapshot.EntryVersion) []byte {
 	return e
 }
 
+// absorbs says that larger holds all of smaller and more, for two versions with the same time:
+// the same content, and custom data that holds all items of smaller and at least one other.
+//
+// KeePassXC does not carry the custom data of an entry into the history version an edit makes,
+// so its history holds such a smaller version of a main version it had. The fingerprints differ,
+// but the smaller version says nothing the larger one does not say, so it goes into the larger
+// one. Custom data where neither holds the other is a true difference: both versions stay.
+//
+// This is a strict order, so what stays of a set does not depend on the order of the versions.
+func absorbs(larger, smaller *snapshot.EntryVersion) bool {
+	return holdsMoreCustomData(larger, smaller) && bytes.Equal(contentWithoutCustomData(larger), contentWithoutCustomData(smaller))
+}
+
+// holdsMoreCustomData compares what the fingerprint covers of the custom data, as a set.
+func holdsMoreCustomData(larger, smaller *snapshot.EntryVersion) bool {
+	if len(larger.CustomData) == 0 {
+		return false
+	}
+	more, less := customDataSet(larger), customDataSet(smaller)
+	if len(less) >= len(more) {
+		return false
+	}
+	for item := range less {
+		if !more[item] {
+			return false
+		}
+	}
+	return true
+}
+
+func customDataSet(v *snapshot.EntryVersion) map[[2]string]bool {
+	set := map[[2]string]bool{}
+	for _, item := range contentCustomData(v.CustomData) {
+		set[[2]string{item.Key, item.Value}] = true
+	}
+	return set
+}
+
+// contentWithoutCustomData encodes what contentOf encodes, apart from the custom data.
+func contentWithoutCustomData(v *snapshot.EntryVersion) []byte {
+	var e encoding
+	encodeFields(&e, v)
+	for _, part := range contentParts {
+		if part.attribute != AttributeCustomData {
+			part.encode(&e, v)
+		}
+	}
+	return e
+}
+
 // exactOf encodes a version with everything contentOf leaves out, except the usage
 // values. Two versions with the same content can differ here. Taking the smallest gives
 // the same result in any order of the copies.

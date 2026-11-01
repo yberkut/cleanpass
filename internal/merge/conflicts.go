@@ -64,15 +64,19 @@ func (m *merger) settle(e *entryState) {
 	}
 }
 
-// disputed gives the main versions that are in conflict: different, and no copy with one
-// of them holds the other in its history. It also says whether two of them are close.
+// disputed gives the main versions that are in conflict: with different content, and no copy
+// with one of them holds the other in its history. It also says whether two of them are close.
+//
+// The same content with another time is no conflict, because there is nothing to choose:
+// keepassxc-cli gives an entry a new time when it moves it to the bin, with no new content and
+// no item in the history. Both stay as versions, and the newest by the clock is main.
 func (e *entryState) disputed() (keys []versionKey, near bool) {
 	mains := e.mains()
 	inConflict := make([]bool, len(mains))
 	for i, older := range mains {
 		for j := i + 1; j < len(mains); j++ {
 			newer := mains[j]
-			if e.replaced(older, newer) || e.replaced(newer, older) {
+			if older.content == newer.content || !e.apart(older, newer) || e.replaced(older, newer) || e.replaced(newer, older) {
 				continue
 			}
 			inConflict[i], inConflict[j] = true, true
@@ -87,34 +91,56 @@ func (e *entryState) disputed() (keys []versionKey, near bool) {
 	return keys, near
 }
 
-// mains gives the different main versions of the copies, the oldest first.
+// mains gives the versions of the set that stand for the main versions of the copies, each
+// once, the oldest first.
 func (e *entryState) mains() []versionKey {
-	keys := make([]versionKey, len(e.holdings))
+	var keys []versionKey
 	for i := range e.holdings {
-		keys[i] = e.holdings[i].main
+		keys = append(keys, e.holdings[i].stands...)
 	}
 	slices.SortFunc(keys, compareKeys)
 	return slices.Compact(keys)
 }
 
-// replaced says a copy with main version by holds old in its history.
+// apart says that a copy stands for each version without the other. A main version that went
+// into both versions says nothing against either of them, so alone it makes no conflict.
+func (e *entryState) apart(a, b versionKey) bool {
+	standsWithout := func(with, without versionKey) bool {
+		return slices.ContainsFunc(e.holdings, func(h holding) bool {
+			return slices.Contains(h.stands, with) && !slices.Contains(h.stands, without)
+		})
+	}
+	return standsWithout(a, b) && standsWithout(b, a)
+}
+
+// replaced says a copy with main version by holds old in its history. Both are versions of the
+// set, so a history version that lacks the custom data of old still counts as old: see absorbs.
 func (e *entryState) replaced(old, by versionKey) bool {
 	for i := range e.holdings {
-		if h := &e.holdings[i]; h.main == by && h.history[old] {
+		if h := &e.holdings[i]; slices.Contains(h.stands, by) && h.history[old] {
 			return true
 		}
 	}
 	return false
 }
 
-// replacingMain gives the main versions of the copies that hold the main version of the
-// entry in their history. A history leaves out the main version of its own copy, so each of
-// these differs from it. Normally there are none: the newest version is no copy's old one.
+// replacingMain gives the main versions of the copies that hold the main version of the entry
+// in their history. A history leaves out the main version of its own copy, so each of these
+// differs from it. A main version with the same content as the main version of the entry does
+// not count: the clock has moved a time there and no content. Normally there are none: the
+// newest version is no copy's old one.
 func (e *entryState) replacingMain() []versionKey {
+	main := e.main().key
 	var keys []versionKey
 	for i := range e.holdings {
-		if h := &e.holdings[i]; h.history[e.main().key] {
-			keys = append(keys, h.main)
+		h := &e.holdings[i]
+		if !h.history[main] {
+			continue
+		}
+		for _, k := range h.stands {
+			if k.content != main.content {
+				keys = append(keys, k)
+			}
 		}
 	}
 	return keys
@@ -156,17 +182,17 @@ func (e *entryState) answers(asked []versionKey) []*version {
 	return result
 }
 
+// find gives a version that is in the set.
 func (e *entryState) find(key versionKey) *version {
-	i, _ := slices.BinarySearchFunc(e.versions, key, func(v *version, key versionKey) int {
-		return compareKeys(v.key, key)
-	})
+	i, _ := e.search(key)
 	return e.versions[i]
 }
 
+// copiesWithMain names the copies whose main version is this version, or went into it.
 func (e *entryState) copiesWithMain(key versionKey) []string {
 	var names []string
 	for i := range e.holdings {
-		if e.holdings[i].main == key {
+		if slices.Contains(e.holdings[i].stands, key) {
 			names = append(names, e.holdings[i].copy.Name)
 		}
 	}

@@ -165,18 +165,15 @@ func TestPropertyAMergedPairHoldsExactlyItsVersions(t *testing.T) {
 			}
 			into[a.Absorbed] = a.Into
 		}
-		want := map[snapshot.UUID]map[versionID]bool{}
+		held := map[snapshot.UUID][]*snapshot.EntryVersion{}
 		newest := map[snapshot.UUID]time.Time{}
 		for uuid, holdings := range heldEntries(s.Copies) {
 			final, wasAbsorbed := into[uuid]
 			if !wasAbsorbed {
 				final = uuid
 			}
-			if want[final] == nil {
-				want[final] = map[versionID]bool{}
-			}
+			held[final] = append(held[final], versionsOfHoldings(holdings)...)
 			for _, h := range holdings {
-				maps.Copy(want[final], idsOf(h.versions))
 				for _, v := range h.versions {
 					if v.Times.LastModification.After(newest[final]) {
 						newest[final] = v.Times.LastModification
@@ -185,10 +182,14 @@ func TestPropertyAMergedPairHoldsExactlyItsVersions(t *testing.T) {
 			}
 		}
 		merged := allEntries(result.Merged)
-		if len(merged) != len(want) {
-			t.Errorf("the result has %d entries, want %d", len(merged), len(want))
+		if len(merged) != len(held) {
+			t.Errorf("the result has %d entries, want %d", len(merged), len(held))
 		}
-		for uuid, versions := range want {
+		for uuid, all := range held {
+			versions := map[versionID]bool{}
+			for id := range standing(all) {
+				versions[id] = true
+			}
 			e := merged[uuid]
 			if e == nil {
 				t.Fatalf("entry %s is gone", uuid)
@@ -351,8 +352,11 @@ func TestPropertyNoSecretAfterAnswers(t *testing.T) {
 
 		result := runOn(t, in)
 
-		if text := printed(result.Questions) + printed(result.Report) + printed(result.Absorbed); strings.Contains(text, mergetest.SecretMarker) {
-			t.Errorf("a secret reached the questions or the report:\n%s", text)
+		text := printed(result.Questions) + printed(result.Report) + printed(result.Absorbed)
+		for _, marker := range []string{mergetest.SecretMarker, mergetest.CustomDataMarker} {
+			if strings.Contains(text, marker) {
+				t.Errorf("a value with the marker %s reached the questions or the report:\n%s", marker, text)
+			}
 		}
 	})
 }

@@ -144,6 +144,25 @@ var corruptions = []corruption{
 		}
 		return ok
 	}},
+	{"an item of custom data of a version gone", lossaudit.VersionLost, func(t *rapid.T, s *snapshot.Snapshot) bool {
+		e, ok := pickEntry(t, s, hasCustomData)
+		if ok {
+			v := pickVersionWithCustomData(t, e)
+			at := plainItems(v)[rapid.IntRange(0, len(plainItems(v))-1).Draw(t, "item")]
+			v.CustomData = slices.Delete(slices.Clone(v.CustomData), at, at+1)
+		}
+		return ok
+	}},
+	{"an item of custom data of a version changed", lossaudit.VersionLost, func(t *rapid.T, s *snapshot.Snapshot) bool {
+		e, ok := pickEntry(t, s, hasCustomData)
+		if ok {
+			v := pickVersionWithCustomData(t, e)
+			at := plainItems(v)[rapid.IntRange(0, len(plainItems(v))-1).Draw(t, "item")]
+			v.CustomData = slices.Clone(v.CustomData)
+			v.CustomData[at].Value += "-changed"
+		}
+		return ok
+	}},
 	{"the bytes of an attachment gone", lossaudit.AttachmentLost, func(t *rapid.T, s *snapshot.Snapshot) bool {
 		id, ok := pickAttachment(t, s)
 		if ok {
@@ -234,6 +253,7 @@ var reachedToday = []string{
 	"a history version gone", "a main version gone", "an entry gone",
 	"a field of a history version changed", "a field of a history version gone",
 	"the time of a version changed", "a reference to an attachment gone",
+	"an item of custom data of a version gone", "an item of custom data of a version changed",
 	"the bytes of an attachment gone", "the bytes of an attachment changed",
 	"a group gone", "the notes of a group changed", "the name of the database changed",
 }
@@ -244,6 +264,26 @@ func hasHistory(e *snapshot.Entry) bool { return len(e.History) > 0 }
 
 func hasAttachment(e *snapshot.Entry) bool {
 	return slices.ContainsFunc(allVersions(e), func(v *snapshot.EntryVersion) bool { return len(v.Attachments) > 0 })
+}
+
+func hasCustomData(e *snapshot.Entry) bool {
+	return slices.ContainsFunc(allVersions(e), func(v *snapshot.EntryVersion) bool { return len(plainItems(v)) > 0 })
+}
+
+// plainItems gives the places of the custom data that is no service data.
+func plainItems(v *snapshot.EntryVersion) []int {
+	var places []int
+	for i := range v.CustomData {
+		if !v.CustomData[i].IsService() {
+			places = append(places, i)
+		}
+	}
+	return places
+}
+
+func pickVersionWithCustomData(t *rapid.T, e *snapshot.Entry) *snapshot.EntryVersion {
+	versions := slices.DeleteFunc(allVersions(e), func(v *snapshot.EntryVersion) bool { return len(plainItems(v)) == 0 })
+	return versions[rapid.IntRange(0, len(versions)-1).Draw(t, "version")]
 }
 
 func allVersions(e *snapshot.Entry) []*snapshot.EntryVersion {

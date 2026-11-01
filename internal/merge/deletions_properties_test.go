@@ -72,16 +72,12 @@ func allowedToGo(decisions []merge.Decision) map[snapshot.UUID]bool {
 // content is no change. It is written apart from the engine.
 func whenTheNewestContentAppeared(holdings []held) time.Time {
 	contentAt := map[time.Time]map[versionID]bool{}
-	for _, h := range holdings {
-		for _, v := range h.versions {
-			content := *v
-			content.Times.LastModification = time.Time{}
-			at := v.Times.LastModification.UTC()
-			if contentAt[at] == nil {
-				contentAt[at] = map[versionID]bool{}
-			}
-			contentAt[at][identify(&content)] = true
+	for _, v := range standing(versionsOfHoldings(holdings)) {
+		at := v.Times.LastModification.UTC()
+		if contentAt[at] == nil {
+			contentAt[at] = map[versionID]bool{}
 		}
+		contentAt[at][identifyContent(v)] = true
 	}
 	times := slices.SortedFunc(maps.Keys(contentAt), func(a, b time.Time) int { return b.Compare(a) })
 	first := times[0]
@@ -166,11 +162,9 @@ func TestPropertyOnlyTheAnswerDeleteRemovesAnEntry(t *testing.T) {
 				continue
 			}
 			got := idsOf(versionsOfEntry(e))
-			for _, h := range holdings {
-				for id := range idsOf(h.versions) {
-					if !got[id] {
-						t.Errorf("entry %s lost a version", uuid)
-					}
+			for id := range standing(versionsOfHoldings(holdings)) {
+				if !got[id] {
+					t.Errorf("entry %s lost a version", uuid)
 				}
 			}
 		}
