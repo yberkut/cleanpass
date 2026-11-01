@@ -21,9 +21,52 @@ type groupState struct {
 	parent snapshot.UUID
 }
 
-// mergeGroups joins all groups of all copies by UUID. Every group of every copy lands in
-// the result, so no entry loses its place.
+// GroupCycleBroken is the event about a group that left its parent, because moves in different
+// copies had put a set of groups under each other. The group lies under the root now.
+type GroupCycleBroken struct {
+	Group snapshot.UUID
+	Name  string
+}
+
+func (g GroupCycleBroken) sortKey() string { return "group cycle:" + g.Group.String() }
+
+// GroupsJoined is the event about groups that went into one group, because they had the same
+// path or because all of them were a recycle bin.
+type GroupsJoined struct {
+	Into snapshot.UUID
+	Name string
+	// Joined holds the UUIDs of the other groups, sorted.
+	Joined []snapshot.UUID
+}
+
+func (g GroupsJoined) sortKey() string { return "groups joined:" + g.Into.String() }
+
+// mergeGroups joins the groups of all copies. Every group lands in the result: as itself or in
+// the group that took its place, so no entry loses its place. It runs before everything else,
+// because the place of an entry is a group of the result.
+//
+// A step decides by the tree the steps before it give: the fields and the place of each group,
+// then the cycles, then the paths. A new join changes that tree and can bring two more groups
+// on one path, so the steps run until no join is left.
 func mergeGroups(m *merger) {
+	var broken []snapshot.UUID
+	for {
+		m.bins = m.readBins()
+		m.joinGroups()
+		broken = m.breakCycles()
+		if !m.joinSamePaths() {
+			break
+		}
+	}
+	for _, id := range broken {
+		m.tell(GroupCycleBroken{Group: id, Name: m.groups[id].data.Name})
+	}
+	m.tellNewJoins()
+}
+
+// joinGroups makes one state for each group of the result out of all copies.
+func (m *merger) joinGroups() {
+	m.groups = map[snapshot.UUID]*groupState{}
 	for i := range m.in.Copies {
 		c := &m.in.Copies[i]
 		m.seeGroup(c, snapshot.UUID{}, &c.Snapshot.Root)
@@ -35,9 +78,10 @@ func (m *merger) seeGroup(c *Copy, parent snapshot.UUID, g *snapshot.Group) {
 	fields := *g
 	fields.UUID = id
 	fields.Entries, fields.Groups = nil, nil
-	if _, inBin := m.bins.inBin[c][id]; inBin && m.bins.outside[id] {
+	if _, inBin := m.bins.inBin[c][g.UUID]; (inBin && m.bins.outside[id]) || parent == id {
 		// Another copy holds the group outside the bin, so the group stays there, and the
-		// move to the bin has no say. The zero values lose to any place the other copy gives.
+		// move to the bin has no say. A place inside the group itself comes from two groups
+		// that are one by now, and it has no say either. The zero values lose to any other place.
 		parent, fields.Times.LocationChanged, fields.PreviousParentGroup = snapshot.UUID{}, time.Time{}, nil
 	}
 
@@ -112,17 +156,100 @@ func groupContent(g *snapshot.Group) []byte {
 	return e
 }
 
-// buildTree gives the merged tree: every group under its parent, every entry in its group.
-// A group whose parent is gone or that no path from the root reaches goes under the root,
-// so that nothing disappears.
-func (m *merger) buildTree() snapshot.Group {
-	childGroups := map[snapshot.UUID][]snapshot.UUID{}
-	for _, id := range slices.SortedFunc(maps.Keys(m.groups), compareUUIDs) {
-		parent := m.groups[id].parent
-		if _, known := m.groups[parent]; !known {
-			parent = m.root
+// breakCycles gives each group a way up to the root. Each copy holds a tree, but the newest move
+// of each group can come from another copy, and together they can put groups under each other.
+// In such a cycle the newest moves hold, as they do everywhere, so the oldest move gives way and
+// its group goes under the root. It says which groups went there, sorted.
+func (m *merger) breakCycles() []snapshot.UUID {
+	var broken []snapshot.UUID
+	const onThisWay, done = 1, 2
+	seen := map[snapshot.UUID]int{m.root: done}
+	for _, start := range slices.SortedFunc(maps.Keys(m.groups), compareUUIDs) {
+		var way []snapshot.UUID
+		id := start
+		for seen[id] == 0 {
+			seen[id] = onThisWay
+			way = append(way, id)
+			if _, known := m.groups[m.groups[id].parent]; !known {
+				m.groups[id].parent = m.root
+			}
+			id = m.groups[id].parent
 		}
-		childGroups[parent] = append(childGroups[parent], id)
+		if seen[id] == onThisWay {
+			cycle := way[slices.Index(way, id):]
+			oldest := slices.MinFunc(cycle, func(a, b snapshot.UUID) int {
+				return cmp.Or(m.groups[a].data.Times.LocationChanged.Compare(m.groups[b].data.Times.LocationChanged), compareUUIDs(a, b))
+			})
+			m.groups[oldest].parent = m.root
+			broken = append(broken, oldest)
+		}
+		for _, passed := range way {
+			seen[passed] = done
+		}
+	}
+	slices.SortFunc(broken, compareUUIDs)
+	return broken
+}
+
+// joinSamePaths joins each two groups with the same name under the same parent: all paths above
+// them are equal once the groups higher up are one. The groups a join changes come back in the
+// next round. The bin joins no plain group: what lies in such a group is alive, and it would
+// count as deleted. It says whether it joined anything.
+func (m *merger) joinSamePaths() bool {
+	type place struct {
+		parent snapshot.UUID
+		name   string
+		isBin  bool
+	}
+	joined := false
+	first := map[place]snapshot.UUID{}
+	for _, id := range slices.SortedFunc(maps.Keys(m.groups), compareUUIDs) {
+		if id == m.root {
+			continue
+		}
+		state := m.groups[id]
+		at := place{parent: state.parent, name: state.data.Name, isBin: id == m.bins.result}
+		if other, taken := first[at]; taken {
+			m.sameGroups.join(other, id)
+			joined = true
+		} else {
+			first[at] = id
+		}
+	}
+	return joined
+}
+
+// tellNewJoins tells about the joins of this merge. An old join is no news.
+func (m *merger) tellNewJoins() {
+	joined := map[snapshot.UUID][]snapshot.UUID{}
+	for member := range m.sameGroups {
+		head := m.sameGroups.head(member)
+		if m.memory.groups.head(member) != head {
+			joined[head] = append(joined[head], member)
+		}
+	}
+	for head, members := range joined {
+		slices.SortFunc(members, compareUUIDs)
+		m.tell(GroupsJoined{Into: head, Name: m.groups[head].data.Name, Joined: members})
+	}
+}
+
+// groupID gives the UUID a group has in the merged tree. All root groups are one group.
+func (m *merger) groupID(id snapshot.UUID) snapshot.UUID {
+	if m.roots[id] {
+		return m.root
+	}
+	return m.sameGroups.head(id)
+}
+
+// buildTree gives the merged tree: every group under its parent, every entry in its group. After
+// breakCycles a way from every group leads to the root.
+func (m *merger) buildTree() snapshot.Group {
+	children := map[snapshot.UUID][]snapshot.UUID{}
+	for id, state := range m.groups {
+		if id != m.root {
+			children[state.parent] = append(children[state.parent], id)
+		}
 	}
 	entries := map[snapshot.UUID][]snapshot.Entry{}
 	for _, e := range m.sortedEntries() {
@@ -133,43 +260,26 @@ func (m *merger) buildTree() snapshot.Group {
 		entries[group] = append(entries[group], e.result())
 	}
 
-	placed := map[snapshot.UUID]bool{}
 	var build func(id snapshot.UUID) snapshot.Group
 	build = func(id snapshot.UUID) snapshot.Group {
-		placed[id] = true
 		group := m.groups[id].data
 		group.Entries = entries[id]
 		slices.SortFunc(group.Entries, compareEntriesForTree)
-		for _, child := range childGroups[id] {
-			if !placed[child] {
-				group.Groups = append(group.Groups, build(child))
-			}
+		for _, child := range children[id] {
+			group.Groups = append(group.Groups, build(child))
 		}
+		slices.SortFunc(group.Groups, func(a, b snapshot.Group) int {
+			return cmp.Or(strings.Compare(a.Name, b.Name), compareUUIDs(a.UUID, b.UUID))
+		})
 		return group
 	}
-	root := build(m.root)
-	for _, id := range slices.SortedFunc(maps.Keys(m.groups), compareUUIDs) {
-		if !placed[id] {
-			root.Groups = append(root.Groups, build(id))
-		}
-	}
-	sortGroups(&root)
-	return root
+	return build(m.root)
 }
 
 // compareEntriesForTree gives a fixed order, the same for any order of the copies. Order
 // by title is what KeePassXC shows by default.
 func compareEntriesForTree(a, b snapshot.Entry) int {
 	return cmp.Or(strings.Compare(titleOf(&a.EntryVersion), titleOf(&b.EntryVersion)), compareUUIDs(a.UUID, b.UUID))
-}
-
-func sortGroups(g *snapshot.Group) {
-	slices.SortFunc(g.Groups, func(a, b snapshot.Group) int {
-		return cmp.Or(strings.Compare(a.Name, b.Name), compareUUIDs(a.UUID, b.UUID))
-	})
-	for i := range g.Groups {
-		sortGroups(&g.Groups[i])
-	}
 }
 
 func titleOf(v *snapshot.EntryVersion) string {

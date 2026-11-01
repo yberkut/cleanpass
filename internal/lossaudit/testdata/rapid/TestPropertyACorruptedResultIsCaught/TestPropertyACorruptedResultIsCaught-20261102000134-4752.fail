@@ -1,0 +1,69 @@
+# 2026/11/02 00:01:34.174159 [TestPropertyACorruptedResultIsCaught] [rapid] draw scenario: mergetest.Scenario{Copies:[]merge.Copy{merge.Copy{Name:"copy-1", Snapshot:(*snapshot.Snapshot)(0xbd566e96e08)}, merge.Copy{Name:"copy-2", Snapshot:(*snapshot.Snapshot)(0xbd566e97188)}}, Now:time.Date(2026, time.June, 2, 12, 0, 0, 0, time.UTC)}
+# 2026/11/02 00:01:34.174159 [TestPropertyACorruptedResultIsCaught] [rapid] draw key: 0x0
+# 2026/11/02 00:01:34.174159 [TestPropertyACorruptedResultIsCaught] [rapid] draw entry: 0
+# 2026/11/02 00:01:34.174159 [TestPropertyACorruptedResultIsCaught] [rapid] draw entry: 0
+# 2026/11/02 00:01:34.174159 [TestPropertyACorruptedResultIsCaught] [rapid] draw version: 0
+# 2026/11/02 00:01:34.174159 [TestPropertyACorruptedResultIsCaught] [rapid] draw group: snapshot.UUID{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2}
+# 2026/11/02 00:01:34.174159 [TestPropertyACorruptedResultIsCaught] [rapid] draw group: &snapshot.Group{UUID:snapshot.UUID{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1}, Name:"Root", Notes:"", IconID:0, CustomIcon:snapshot.UUID{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}, Times:snapshot.Times{Creation:time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC), LastModification:time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC), LastAccess:time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC), Expiry:time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC), Expires:false, UsageCount:0, LocationChanged:time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC)}, IsExpanded:false, DefaultAutoTypeSequence:"", EnableAutoType:(*bool)(nil), EnableSearching:(*bool)(nil), LastTopVisibleEntry:snapshot.UUID{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}, PreviousParentGroup:(*snapshot.UUID)(nil), Tags:"", CustomData:[]snapshot.CustomDataItem(nil), Entries:[]snapshot.Entry{snapshot.Entry{UUID:snapshot.UUID{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x4}, EntryVersion:snapshot.EntryVersion{IconID:0, CustomIcon:snapshot.UUID{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}, ForegroundColor:"", BackgroundColor:"", OverrideURL:"", QualityCheck:(*bool)(nil), Tags:"", PreviousParentGroup:(*snapshot.UUID)(nil), Times:snapshot.Times{Creation:time.Date(2026, time.April, 2, 12, 0, 0, 0, time.UTC), LastModification:time.Date(2026, time.April, 12, 12, 0, 0, 0, time.UTC), LastAccess:time.Date(2026, time.April, 12, 12, 0, 0, 0, time.UTC), Expiry:time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC), Expires:false, UsageCount:0, LocationChanged:time.Date(2026, time.April, 2, 12, 0, 0, 0, time.UTC)}, Fields:[]snapshot.Field{snapshot.Field{Key:"Title", Value:"Mail", Protected:false}, snapshot.Field{Key:"UserName", Value:"user", Protected:false}, snapshot.Field{Key:"Password", Value:"SECRET-MARKER-0", Protected:true}, snapshot.Field{Key:"URL", Value:"", Protected:false}, snapshot.Field{Key:"Notes", Value:"", Protected:false}}, Attachments:[]snapshot.AttachmentRef(nil), AutoType:snapshot.AutoType{Enabled:false, Obfuscation:0, DefaultSequence:"", Associations:[]snapshot.AutoTypeAssociation(nil)}, CustomData:[]snapshot.CustomDataItem(nil)}, History:[]snapshot.EntryVersion{}}}, Groups:[]snapshot.Group{snapshot.Group{UUID:snapshot.UUID{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2}, Name:"Work", Notes:"", IconID:0, CustomIcon:snapshot.UUID{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}, Times:snapshot.Times{Creation:time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC), LastModification:time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC), LastAccess:time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC), Expiry:time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC), Expires:false, UsageCount:0, LocationChanged:time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC)}, IsExpanded:false, DefaultAutoTypeSequence:"", EnableAutoType:(*bool)(nil), EnableSearching:(*bool)(nil), LastTopVisibleEntry:snapshot.UUID{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}, PreviousParentGroup:(*snapshot.UUID)(nil), Tags:"", CustomData:[]snapshot.CustomDataItem(nil), Entries:[]snapshot.Entry(nil), Groups:[]snapshot.Group(nil)}}}
+# 2026/11/02 00:01:34.174159 [TestPropertyACorruptedResultIsCaught] [rapid] draw key: "cleanpass/groups/00000000000000000000000000000002/00000000000000000000000000000003"
+# 2026/11/02 00:01:34.174159 [TestPropertyACorruptedResultIsCaught] custom data gone: the audit gave [{Kind:4 Object:00000000000000000000000000000003 Time:0001-01-01 00:00:00 +0000 UTC Attachment:[0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] Name:}], want a loss of kind 7
+# 
+v0.4.8#8826033290962322326
+0x0
+0x38e38e38e38e4
+0x2
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

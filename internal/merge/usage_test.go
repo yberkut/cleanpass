@@ -302,15 +302,15 @@ func TestAttachmentNoEntryRefersToIsNotInTheResult(t *testing.T) {
 
 func TestSettingsComeFromTheCopyWithTheNewestChange(t *testing.T) {
 	older := database()
-	older.Meta = snapshot.Meta{DatabaseName: "older", SettingsChanged: hours(1)}
+	older.Meta = snapshot.Meta{Color: "older", SettingsChanged: hours(1)}
 	newer := database()
-	newer.Meta = snapshot.Meta{DatabaseName: "newer", SettingsChanged: hours(2)}
+	newer.Meta = snapshot.Meta{Color: "newer", SettingsChanged: hours(2)}
 	tied := database()
-	tied.Meta = snapshot.Meta{DatabaseName: "another", SettingsChanged: hours(2)}
+	tied.Meta = snapshot.Meta{Color: "another", SettingsChanged: hours(2)}
 
 	for _, order := range [][]*snapshot.Snapshot{{older, newer, tied}, {tied, newer, older}, {newer, older, tied}} {
-		if got := mergeOf(t, order...).Merged.Meta.DatabaseName; got != "newer" {
-			t.Errorf("database name = %q, want the same winner %q in any order", got, "newer")
+		if got := mergeOf(t, order...).Merged.Meta.Color; got != "newer" {
+			t.Errorf("color = %q, want the same winner %q in any order", got, "newer")
 		}
 	}
 }
