@@ -28,6 +28,7 @@ func WriteDifferences(w io.Writer, facts merge.Facts) error {
 		out.header(text.SectionLagging)
 		for i := range lagging {
 			out.entryLabel(&lagging[i])
+			out.reasons(&lagging[i], facts.Conflicts)
 			out.copies(&lagging[i], true)
 		}
 	}
@@ -42,7 +43,7 @@ func WriteDifferences(w io.Writer, facts merge.Facts) error {
 	if len(facts.Deletions) > 0 {
 		out.header(text.SectionDeletions)
 		for _, d := range byTitle(facts.Deletions, func(d merge.DeletionChange) string { return d.Label.Title }) {
-			out.deletion(&d.Deletion)
+			out.deletion(&d)
 		}
 	}
 	if len(facts.Pairs) > 0 {
@@ -52,6 +53,15 @@ func WriteDifferences(w io.Writer, facts merge.Facts) error {
 		}
 		if facts.IdenticalPairs > 0 {
 			out.line("  ", text.PairsIdentical(facts.IdenticalPairs))
+		}
+	}
+	if len(facts.GroupsJoined)+len(facts.GroupCycles) > 0 {
+		out.header(text.SectionGroups)
+		for _, g := range byTitle(facts.GroupsJoined, func(g merge.GroupsJoined) string { return g.Name }) {
+			out.line("  ", text.GroupsJoin(groupName(g.Name, g.Into), len(g.Joined)))
+		}
+		for _, g := range byTitle(facts.GroupCycles, func(g merge.GroupCycleBroken) string { return g.Name }) {
+			out.line("  ", text.GroupLeavesCycle(groupName(g.Name, g.Group)))
 		}
 	}
 	if facts.Unknown > 0 {
@@ -115,8 +125,11 @@ func (o *writer) entryLabel(e *merge.EntryChange) {
 	o.line("  ", labelText(e.Label, e.Entry))
 }
 
+// reasons says why the entry stands where it stands. A clock that has put a replaced version on
+// top is the case a person must see: with no question left about it, an earlier decision has
+// settled it, and the report still names it.
 func (o *writer) reasons(e *merge.EntryChange, conflicts map[snapshot.UUID]merge.Conflict) {
-	conflict := conflicts[e.Entry]
+	conflict, asked := conflicts[e.Entry]
 	if e.Outcome == merge.OutcomeConflict {
 		o.line("    ", text.DisputeFarApart)
 	}
@@ -126,8 +139,11 @@ func (o *writer) reasons(e *merge.EntryChange, conflicts map[snapshot.UUID]merge
 	if conflict.Future {
 		o.line("    ", text.DisputeFuture)
 	}
-	if e.Replaced {
+	switch {
+	case e.Replaced && asked:
 		o.line("    ", text.DisputeClock)
+	case e.Replaced:
+		o.line("    ", text.DisputeClockDecided)
 	}
 }
 
@@ -147,8 +163,16 @@ func (o *writer) copies(e *merge.EntryChange, tellHistory bool) {
 	}
 }
 
-func (o *writer) deletion(d *merge.Deletion) {
+func (o *writer) deletion(d *merge.DeletionChange) {
 	o.line("  ", labelText(d.Label, d.Entry))
+	switch d.Outcome {
+	case merge.DeletionOpen:
+		o.line("    ", text.DeletionWillAsk)
+	case merge.DeletionRejected:
+		o.line("    ", text.DeletionDecidedKeep)
+	case merge.DeletionApplied:
+		o.line("    ", text.DeletionDecidedDelete)
+	}
 	o.line("    ", text.DeletionDates(formatTime(d.Deleted), formatTime(d.Modified)))
 	if len(d.Recorded) > 0 {
 		o.line("    ", text.DeletionRecordedIn(d.Recorded))
@@ -231,6 +255,10 @@ func attributeDiffers(a merge.Attribute) string {
 // can hold a password or a token.
 func labelText(label merge.Label, id snapshot.UUID) string {
 	return text.EntryLabel(oneLine(label.Title), oneLine(label.UserName), oneLine(label.Host()), id.String())
+}
+
+func groupName(name string, id snapshot.UUID) string {
+	return text.EntryLabel(oneLine(name), "", "", id.String())
 }
 
 // oneLine replaces every character that breaks a line or moves the cursor. A value from a file

@@ -37,10 +37,18 @@ func FutureStampWarning(stamp string) string {
 // The headers of the sections about differences in the report of compare.
 const (
 	SectionOnlyInSome = "Записи лише в частині копій. Запис, якого в копії просто немає, вважається новим:"
-	SectionLagging    = "Копія відстає: її версія є в історії іншої копії. Це не конфлікт, питання не буде:"
+	SectionLagging    = "Копія відстає. Це не конфлікт, питання не буде:"
 	SectionDisputes   = "Версії сперечаються:"
-	SectionDeletions  = "Видалення. Під час злиття про кожне буде питання, а без відповіді запис лишиться:"
+	SectionDeletions  = "Видалення:"
 	SectionPairs      = "Схожі записи з різними UUID. Під час злиття про кожну пару буде питання, а без відповіді лишаться обидва:"
+	SectionGroups     = "Групи. Тула зробить це сама, без питання:"
+)
+
+// What became of the question about a deletion.
+const (
+	DeletionWillAsk       = "Під час злиття буде питання, а без відповіді запис лишиться."
+	DeletionDecidedKeep   = "Питання не буде: ви вже вирішили лишити цей запис."
+	DeletionDecidedDelete = "Питання не буде: ви вже вирішили видалити цей запис."
 )
 
 // The reasons of a dispute between the versions of an entry.
@@ -55,6 +63,8 @@ const (
 	DisputeFuture = trueConflict + "Одна з версій має дату з майбутнього. Під час злиття буде питання, а без відповіді новіша стане головною."
 	// DisputeClock says the clock puts a version on top that a copy has already replaced.
 	DisputeClock = "Увага: збитий годинник. Найновіша за часом версія вже замінена в іншій копії, але без відповіді стане головною, і так може повернутись старий пароль. Під час злиття буде питання."
+	// DisputeClockDecided says the human has already let such a version stay on top.
+	DisputeClockDecided = "Збитий годинник: найновіша за часом версія вже замінена в іншій копії, але ви вже вирішили лишити її головною. Питання не буде."
 )
 
 // The parts of the line about an entry in one copy.
@@ -193,6 +203,16 @@ func PairDiffers(differences []string) string {
 // PairsIdentical counts the pairs one decision can merge.
 func PairsIdentical(count int) string {
 	return fmt.Sprintf("Пар з однаковим вмістом: %d. Під час злиття їх можна злити одним рішенням.", count)
+}
+
+// GroupsJoin names a group that takes other groups in.
+func GroupsJoin(name string, others int) string {
+	return fmt.Sprintf("%s: в одну групу з нею об'єднається ще груп: %d (однаковий шлях або кошик)", name, others)
+}
+
+// GroupLeavesCycle names a group that leaves its parent to break a cycle.
+func GroupLeavesCycle(name string) string {
+	return name + ": рухи в різних копіях зациклили групи, тому ця група стане під кореневу"
 }
 
 // UnknownFacts says that the report cannot show part of what the merge said.

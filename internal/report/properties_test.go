@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"pgregory.net/rapid"
 
@@ -61,9 +62,11 @@ func withSecretsEverywhere(s mergetest.Scenario) {
 	}
 }
 
-func reportOf(t rapid.TB, s mergetest.Scenario) (string, merge.Facts) {
+var key = merge.Key{1, 2, 3}
+
+func reportOf(t rapid.TB, copies []merge.Copy, now time.Time) (string, merge.Facts) {
 	t.Helper()
-	result, err := merge.Run(merge.Input{Copies: s.Copies, Now: s.Now, Key: merge.Key{1, 2, 3}})
+	result, err := merge.Run(merge.Input{Copies: copies, Now: now, Key: key})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,19 +78,43 @@ func reportOf(t rapid.TB, s mergetest.Scenario) (string, merge.Facts) {
 	return out.String(), facts
 }
 
-// "Без секретів у звіті" from the spec.
+// reportWithMemory merges with these answers and reports on the result beside an old copy, so
+// the report shows what the memory of the decisions has settled.
+func reportWithMemory(t rapid.TB, s mergetest.Scenario, answer func(i int, q merge.Question) int, old merge.Copy) (string, merge.Facts) {
+	t.Helper()
+	in := merge.Input{Copies: s.Copies, Now: s.Now, Key: key}
+	asked, err := merge.Run(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, q := range asked.Questions {
+		in.Decisions = append(in.Decisions, merge.Decision{Question: q.ID, Choice: answer(i, q)})
+	}
+	first, err := merge.Run(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return reportOf(t, []merge.Copy{{Name: "result", Snapshot: first.Merged}, old}, s.Now)
+}
+
+// "Без секретів у звіті" from the spec: for the copies as they are, and for a result beside an old
+// copy, where the memory of the decisions has its say.
 func TestPropertyNoSecretsInTheReport(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := mergetest.Scenarios().Draw(t, "scenario")
 		withSecretsEverywhere(s)
 
-		text, facts := reportOf(t, s)
+		text, facts := reportOf(t, s.Copies, s.Now)
+		answer := func(_ int, q merge.Question) int { return rapid.IntRange(0, q.Choices-1).Draw(t, "answer") }
+		withMemory, factsWithMemory := reportWithMemory(t, s, answer, rapid.SampledFrom(s.Copies).Draw(t, "old copy"))
 
-		if strings.Contains(text, mergetest.SecretMarker) {
-			t.Fatalf("the report holds a secret value:\n%s", text)
+		for _, report := range []string{text, withMemory} {
+			if strings.Contains(report, mergetest.SecretMarker) {
+				t.Fatalf("the report holds a secret value:\n%s", report)
+			}
 		}
-		if facts.Unknown != 0 {
-			t.Fatalf("the report cannot show %d events or questions:\n%s", facts.Unknown, text)
+		if facts.Unknown+factsWithMemory.Unknown != 0 {
+			t.Fatalf("the report cannot show %d events or questions:\n%s\n%s", facts.Unknown+factsWithMemory.Unknown, text, withMemory)
 		}
 	})
 }
@@ -97,7 +124,7 @@ func TestPropertyNoSecretsInTheReport(t *testing.T) {
 func TestScenariosFillEveryPartOfTheReport(t *testing.T) {
 	seen := map[string]int{}
 	phrases := []string{
-		"Записи лише в частині копій", "Копія відстає", "Версії сперечаються", "Видалення.", "Схожі записи",
+		"Записи лише в частині копій", "Копія відстає", "Версії сперечаються", "Видалення:", "Схожі записи",
 		"Пар з однаковим вмістом",
 		"Різниця 24 години або більше", "Різниця менша за 24 години", "Одна з версій має дату з майбутнього", "Увага: збитий годинник",
 		"запису немає", "ця версія є в історії іншої копії", "цієї версії немає в історії інших копій", "вміст як у версії, що стане головною",
@@ -106,13 +133,17 @@ func TestScenariosFillEveryPartOfTheReport(t *testing.T) {
 		"Запис про видалення:", "У кошику:", "Поза кошиком:", "Видалено ",
 		"Спільне: назва і логін", "логін і сайт", "пароль однаковий", "вміст однаковий", "Відрізняється:", "Перший запис:", "Другий запис:",
 		"(без назви, UUID", "логін: ", "сайт: ",
+		"Групи.", "об'єднається ще груп", "зациклили групи",
+		"Під час злиття буде питання, а без відповіді запис лишиться", "ви вже вирішили лишити цей запис", "ви вже вирішили видалити цей запис",
+		"ви вже вирішили лишити її головною",
 	}
 	for i := range 500 {
 		s := mergetest.Scenarios().Example(i)
 		withSecretsEverywhere(s)
-		text, _ := reportOf(t, s)
+		text, _ := reportOf(t, s.Copies, s.Now)
+		withMemory, _ := reportWithMemory(t, s, func(n int, q merge.Question) int { return (i + n) % q.Choices }, s.Copies[i%len(s.Copies)])
 		for _, phrase := range phrases {
-			if strings.Contains(text, phrase) {
+			if strings.Contains(text, phrase) || strings.Contains(withMemory, phrase) {
 				seen[phrase]++
 			}
 		}

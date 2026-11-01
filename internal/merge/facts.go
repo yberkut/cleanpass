@@ -17,6 +17,10 @@ type Facts struct {
 	Pairs []SimilarPair
 	// IdenticalPairs counts the pairs one decision can merge.
 	IdenticalPairs int
+	// GroupsJoined holds the groups that took other groups in.
+	GroupsJoined []GroupsJoined
+	// GroupCycles holds the groups that left their parent to break a cycle.
+	GroupCycles []GroupCycleBroken
 	// Unknown counts the events and questions of a kind Facts does not name yet. The Report says
 	// so, because a kind it cannot show must not disappear without a word.
 	Unknown int
@@ -31,6 +35,10 @@ func (r *Result) Facts() Facts {
 			facts.Entries = append(facts.Entries, e)
 		case DeletionChange:
 			facts.Deletions = append(facts.Deletions, e)
+		case GroupsJoined:
+			facts.GroupsJoined = append(facts.GroupsJoined, e)
+		case GroupCycleBroken:
+			facts.GroupCycles = append(facts.GroupCycles, e)
 		default:
 			facts.Unknown++
 		}
