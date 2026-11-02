@@ -105,6 +105,74 @@ func TestAPairTheHumanMergedDoesNotComeBackWithAnOldCopy(t *testing.T) {
 	})
 }
 
+// A copy that still holds an entry under its old UUID gets a word in the report: the block of the
+// entry that took it in would have no reason otherwise. Its line about that copy tells what the
+// copy holds, because a copy with the old UUID does hold the account.
+func TestAnOldCopyWithAMergedEntryGetsAnEventAndARightLine(t *testing.T) {
+	old := database(account(firstID, "Mail", "user", "", "one"), account(secondID, "Mail", "user", "", "two"))
+	result := answerTheOnlyPair(t, 1, old)
+	onlySecond := database(account(secondID, "Mail", "user", "", "two"))
+
+	for _, copies := range [][]merge.Copy{
+		{{Name: "result", Snapshot: result.Merged}, {Name: "old", Snapshot: onlySecond}},
+		{{Name: "old", Snapshot: onlySecond}, {Name: "result", Snapshot: result.Merged}},
+	} {
+		again := mustRun(t, input(copies...))
+
+		want := merge.PairRemembered{
+			Entry:    firstID,
+			Label:    merge.Label{Title: "Mail", UserName: "user"},
+			Absorbed: []snapshot.UUID{secondID},
+			Copies:   []string{"old"},
+		}
+		if !slices.ContainsFunc(again.Report, func(e merge.Event) bool { return reflect.DeepEqual(e, want) }) {
+			t.Errorf("report = %s, want %+v", printed(again.Report), want)
+		}
+		for _, event := range again.Report {
+			change, ok := event.(merge.EntryChange)
+			if !ok {
+				continue
+			}
+			for _, c := range change.Copies {
+				if !c.Holds {
+					t.Errorf("the report says %s does not hold the entry: %+v", c.Name, change)
+				}
+			}
+			if change.Outcome == merge.OutcomeNew {
+				t.Errorf("the report calls the entry new in a part of the copies: %+v", change)
+			}
+		}
+	}
+}
+
+// With no old UUID in any copy there is nothing to say: the memory alone is no news.
+func TestAPairOfAnEarlierMergeIsNoNewsWithoutAnOldCopy(t *testing.T) {
+	old := database(account(firstID, "Mail", "user", "", "one"), account(secondID, "Mail", "user", "", "two"))
+	result := answerTheOnlyPair(t, 1, old)
+
+	again := mergeOf(t, result.Merged)
+
+	for _, event := range again.Report {
+		t.Errorf("the report tells %s", printed(event))
+	}
+}
+
+// An entry the memory removes takes its event with it: the event about the deletion tells enough.
+func TestAPairOfADeletedEntryGivesNoEvent(t *testing.T) {
+	both := database(account(firstID, "Mail", "user", "", "one"), account(secondID, "Mail", "user", "", "two"))
+	merged := answerTheOnlyPair(t, 1, both).Merged
+	deleted := recorded(database(), snapshot.Deletion{UUID: firstID, Time: hours(9)})
+	result := answerTheOnly[merge.Deletion](t, merge.AnswerDelete, named(merged, deleted)...)
+
+	again := mergeOf(t, result.Merged, database(account(secondID, "Mail", "user", "", "two")))
+
+	for _, event := range again.Report {
+		if _, ok := event.(merge.PairRemembered); ok {
+			t.Errorf("the report tells %+v", event)
+		}
+	}
+}
+
 // answerTheOnlyPair answers the only question about one pair of these copies.
 func answerTheOnlyPair(t *testing.T, choice int, snapshots ...*snapshot.Snapshot) *merge.Result {
 	t.Helper()

@@ -115,9 +115,9 @@ type entryState struct {
 	// holdings holds one item for each place a copy holds this entry.
 	holdings []holding
 	// absorbed holds what the copies still hold of entries an earlier merge has taken into this
-	// one. These entries bring their versions and nothing else: what a copy does to an entry
-	// that is gone says nothing about this one. Only an entry with no holding of its own lies
-	// where they lie, see join.
+	// one. These entries bring their versions and a line in the report, and nothing else: what a
+	// copy does to an entry that is gone says nothing about this one. Only an entry with no
+	// holding of its own lies where they lie, see join.
 	absorbed []holding
 	// versions is the set of versions, the oldest first. The last one is the main version.
 	versions []*version
@@ -166,31 +166,33 @@ func (e *entryState) join(key Key) {
 		e.holdings, e.absorbed = e.absorbed, nil
 	}
 	for i := range e.absorbed {
-		old := e.absorbed[i].entry
-		e.put(key.versionKey(&old.EntryVersion), old.EntryVersion)
-		for j := range old.History {
-			e.put(key.versionKey(&old.History[j]), old.History[j])
-		}
+		e.read(&e.absorbed[i], key)
 	}
 	for i := range e.holdings {
 		h := &e.holdings[i]
-		h.main = key.versionKey(&h.entry.EntryVersion)
-		e.put(h.main, h.entry.EntryVersion)
-		located := h.entry.Times.LocationChanged
-		h.history = make(map[versionKey]bool, len(h.entry.History))
-		for j := range h.entry.History {
-			old := &h.entry.History[j]
-			oldKey := key.versionKey(old)
-			e.put(oldKey, *old)
-			if oldKey != h.main {
-				h.history[oldKey] = true
-			}
-			located = later(located, old.Times.LocationChanged)
-		}
+		located := e.read(h, key)
 		if i == 0 || cmp.Or(located.Compare(e.located), compareUUIDs(h.group, e.group)) > 0 {
 			e.located, e.group = located, h.group
 		}
 	}
+}
+
+// read adds the versions of a holding to the set, and it gives the newest move of those versions.
+func (e *entryState) read(h *holding, key Key) (located time.Time) {
+	h.main = key.versionKey(&h.entry.EntryVersion)
+	e.put(h.main, h.entry.EntryVersion)
+	located = h.entry.Times.LocationChanged
+	h.history = make(map[versionKey]bool, len(h.entry.History))
+	for j := range h.entry.History {
+		old := &h.entry.History[j]
+		oldKey := key.versionKey(old)
+		e.put(oldKey, *old)
+		if oldKey != h.main {
+			h.history[oldKey] = true
+		}
+		located = later(located, old.Times.LocationChanged)
+	}
+	return located
 }
 
 // put adds a version to the set. The same version in several places joins into one.

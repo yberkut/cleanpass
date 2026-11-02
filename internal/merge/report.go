@@ -121,11 +121,12 @@ func differences(a, b *snapshot.EntryVersion) Difference {
 	return result
 }
 
-// outcomeWithoutConflict gives the outcome when no main version disputes another.
+// outcomeWithoutConflict gives the outcome when no main version disputes another. A copy that
+// holds the entry only under the UUID it had before an earlier merge does hold it.
 func (e *entryState) outcomeWithoutConflict(copies int) Outcome {
 	main := e.main().key
-	for i := range e.holdings {
-		if e.holdings[i].main != main {
+	for _, h := range e.allHoldings() {
+		if h.main != main {
 			return OutcomeUpdated
 		}
 	}
@@ -135,14 +136,19 @@ func (e *entryState) outcomeWithoutConflict(copies int) Outcome {
 	return outcomeSame
 }
 
-// change makes the event about the entry, from the state after all its decisions.
+// allHoldings gives what the copies hold of this entry, last what they hold under its own UUID.
+func (e *entryState) allHoldings() []holding { return slices.Concat(e.absorbed, e.holdings) }
+
+// change makes the event about the entry, from the state after all its decisions. For a copy
+// that holds the entry under two UUIDs, the holding under its own UUID tells.
 func (e *entryState) change(outcome Outcome, copies []Copy) EntryChange {
 	main := e.main()
 	change := EntryChange{Entry: e.uuid, Label: labelOf(&main.data), Outcome: outcome, Replaced: len(e.replacingMain()) > 0}
+	holdings := e.allHoldings()
 	for i := range copies {
 		state := CopyState{Name: copies[i].Name}
-		for j := range e.holdings {
-			if h := &e.holdings[j]; h.copy == &copies[i] {
+		for j := range holdings {
+			if h := &holdings[j]; h.copy == &copies[i] {
 				state.Holds = true
 				state.Modified = h.main.time()
 				state.Behind = e.isBehind(h)

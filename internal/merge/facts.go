@@ -17,6 +17,9 @@ type Facts struct {
 	Pairs []SimilarPair
 	// IdenticalPairs counts the pairs one decision can merge.
 	IdenticalPairs int
+	// RememberedPairs holds the entries an earlier merge made of several, where a copy still holds
+	// one of them under its old UUID.
+	RememberedPairs []PairRemembered
 	// GroupsJoined holds the groups that took other groups in.
 	GroupsJoined []GroupsJoined
 	// GroupCycles holds the groups that left their parent to break a cycle.
@@ -35,6 +38,8 @@ func (r *Result) Facts() Facts {
 			facts.Entries = append(facts.Entries, e)
 		case DeletionChange:
 			facts.Deletions = append(facts.Deletions, e)
+		case PairRemembered:
+			facts.RememberedPairs = append(facts.RememberedPairs, e)
 		case GroupsJoined:
 			facts.GroupsJoined = append(facts.GroupsJoined, e)
 		case GroupCycleBroken:

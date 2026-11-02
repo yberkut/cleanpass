@@ -185,9 +185,9 @@ func (e *entryState) find(key versionKey) *version {
 
 func (e *entryState) copiesWithMain(key versionKey) []string {
 	var names []string
-	for i := range e.holdings {
-		if e.holdings[i].main == key {
-			names = append(names, e.holdings[i].copy.Name)
+	for _, h := range e.allHoldings() {
+		if h.main == key {
+			names = append(names, h.copy.Name)
 		}
 	}
 	slices.Sort(names)

@@ -11,7 +11,11 @@ import (
 	"github.com/yberkut/cleanpass/internal/snapshot"
 )
 
-func init() { addRule(phasePairs, askAboutPairs) }
+func init() {
+	addRule(phasePairs, askAboutPairs)
+	// After phaseDeletions, because an entry that is gone by then needs no word.
+	addRule(phaseMetadata, tellRememberedPairs)
+}
 
 // SimilarPair is the Detail of a question about two entries that look like one account under
 // two UUIDs. Answer 0 keeps both, which is also what happens without an answer, and answer 1
@@ -67,6 +71,37 @@ type PairMerged struct {
 }
 
 func (p PairMerged) sortKey() string { return "pair merged:" + p.Entry.String() }
+
+// PairRemembered is the event about an entry that an earlier merge made of several, when a copy
+// still holds one of them under its old UUID. Nobody gets asked: the memory settles it. Without this
+// event the report would show a change of the entry with no reason.
+type PairRemembered struct {
+	Entry snapshot.UUID
+	Label Label
+	// Absorbed holds the old UUIDs the copies still hold, sorted.
+	Absorbed []snapshot.UUID
+	// Copies names the copies that hold them, sorted.
+	Copies []string
+}
+
+func (p PairRemembered) sortKey() string { return "pair remembered:" + p.Entry.String() }
+
+func tellRememberedPairs(m *merger) {
+	for _, e := range m.sortedEntries() {
+		var absorbed []snapshot.UUID
+		var names []string
+		for _, h := range e.allHoldings() {
+			if h.entry.UUID != e.uuid {
+				absorbed = append(absorbed, h.entry.UUID)
+				names = append(names, h.copy.Name)
+			}
+		}
+		if len(absorbed) > 0 {
+			slices.SortFunc(absorbed, compareUUIDs)
+			m.tell(PairRemembered{Entry: e.uuid, Label: labelOf(&e.main().data), Absorbed: slices.Compact(absorbed), Copies: sortedNames(names)})
+		}
+	}
+}
 
 // PairNotMerged is the event about a pair the human wanted merged. The merge did not happen,
 // because it would have made one entry of two others the human wanted kept apart.

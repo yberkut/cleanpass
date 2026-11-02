@@ -7,7 +7,10 @@ import (
 	"github.com/yberkut/cleanpass/internal/testkit"
 )
 
-const groupsSection = "Групи"
+const (
+	groupsSection     = "Групи"
+	rememberedSection = "Записи, які ви вже злили раніше"
+)
 
 // groupXML is a group with this UUID, name, time of its last move and content.
 func groupXML(id, name, moved, content string) string {
@@ -113,6 +116,39 @@ func TestCompareAsksNothingAboutAPairAnEarlierMergeMadeOne(t *testing.T) {
 
 	// Without the memory the same copies raise the question.
 	wantLines(t, section(t, testkit.Run(t, passwords(2), "compare", b.Path, b.Path).Stdout, pairsSection), "    Спільне: назва і логін; пароль однаковий")
+}
+
+// The memory has made one entry of two, and an old copy still holds the second one by itself. The
+// report gives the reason, and it does not say the old copy lacks the entry.
+func TestCompareSaysAnOldCopyStillHoldsAnEntryAnEarlierMergeTookIn(t *testing.T) {
+	const smaller, larger = "00000000000000000000000000000200", "00000000000000000000000000000201"
+	version := func(id, modified, password string) string {
+		return "<UUID>" + id + "</UUID><Times><LastModificationTime>" + modified + "</LastModificationTime></Times>" +
+			fields("Title", "Пошта", "UserName", "я", "Notes", password)
+	}
+	replaceEntry := func(xml string) string {
+		start := strings.Index(testkit.PlainXML, "<Entry>")
+		end := strings.Index(testkit.PlainXML, "</Entry>") + len("</Entry>")
+		return testkit.PlainXML[:start] + xml + testkit.PlainXML[end:]
+	}
+	const firstUUID, secondUUID = "AAAAAAAAAAAAAAAAAAACAA==", "AAAAAAAAAAAAAAAAAAACAQ=="
+	merged := "<Entry>" + version(firstUUID, v2, "нове") + "<History><Entry>" + version(firstUUID, v1, "старе") + "</Entry></History></Entry>"
+	dir := t.TempDir()
+	result := rawCopy(t, dir, "result.kdbx", memoryItem(replaceEntry(merged), "entries/"+smaller+"/"+larger))
+	old := rawCopy(t, dir, "old.kdbx", replaceEntry("<Entry>"+version(secondUUID, v1, "старе")+"</Entry>"))
+
+	got := testkit.Run(t, passwords(2), "compare", result.Path, old.Path)
+
+	wantCode(t, got, 0)
+	lines := section(t, got.Stdout, rememberedSection)
+	wantLines(t, lines, "    Раніше сюди злито записів: 1. Під старим UUID вони ще є в: "+old.Path)
+	wantNoSection(t, got.Stdout, onlyInSomeCopies)
+	if !strings.Contains(strings.Join(section(t, got.Stdout, copyLags), "\n"), old.Path+":") {
+		t.Errorf("no line about the old copy:\n%s", got.Stdout)
+	}
+	if strings.Contains(got.Stdout, "запису немає") {
+		t.Errorf("the report says a copy lacks the entry:\n%s", got.Stdout)
+	}
 }
 
 // The human has seen this anomaly and let the version stay on top, so no question comes. The
