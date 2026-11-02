@@ -71,9 +71,9 @@ func expectedView(want, seen *snapshot.Snapshot) *snapshot.Snapshot {
 func seenView(seen *snapshot.Snapshot) *snapshot.Snapshot { return viewer{}.snapshot(seen) }
 
 // printedNewestFormat tells whether the text holds anything only KDBX 4.1 can hold. KeePassXC
-// picks the oldest format that fits the data, for a print as for a save. Some of the data does not
-// ask for KDBX 4.1 by itself: an old place, and a time of custom data. With no other reason, these
-// do not come out of KeePassXC at all, and only the loss of all of them can pass here.
+// prints the oldest format that fits the data. Some of the data does not ask for KDBX 4.1 by
+// itself: an old place, and a time of custom data. With no other reason, these do not come out of
+// an export at all, and only the loss of all of them can pass here.
 func printedNewestFormat(seen *snapshot.Snapshot) bool {
 	for i := range seen.Meta.CustomIcons {
 		if icon := &seen.Meta.CustomIcons[i]; icon.Name != "" || !icon.LastModification.IsZero() {
