@@ -248,6 +248,9 @@ func TestKeePassXCAgreesWithWhatTheMergeEngineGives(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if holdsTwoContentsUnderOneName(result.Merged) {
+			continue
+		}
 		if err := judge.CompareExport(written(t, result.Merged), result.Merged); err != nil {
 			t.Errorf("scenario %d: %v", seed, err)
 		}
@@ -283,9 +286,8 @@ func TestTheWholeJudgeAgreesWithWhatTheMergeEngineGives(t *testing.T) {
 	}
 }
 
-// holdsTwoContentsUnderOneName finds what only the generator makes. KeePassXC has one attachment
-// for a name, so it really cannot see both, and the Judge is right to stop there. The test below
-// proves that.
+// holdsTwoContentsUnderOneName finds what the generator can make and KeePassXC cannot hold: it has
+// one attachment for a name. The Judge is right to stop there, and the test below proves that.
 func holdsTwoContentsUnderOneName(s *snapshot.Snapshot) bool {
 	found := false
 	inVersion := func(v *snapshot.EntryVersion) {
@@ -308,19 +310,35 @@ func holdsTwoContentsUnderOneName(s *snapshot.Snapshot) bool {
 	return found
 }
 
+// Which of the two KeePassXC keeps differs from run to run, so each call can see the one it is asked
+// about, and a check of the bytes alone would pass now and then. The export must settle this, every
+// time, for a main version and for an older one.
 func TestTheJudgeStopsAtTwoContentsUnderOneName(t *testing.T) {
 	program, err := judge.Find()
 	if err != nil {
 		t.Fatal(err)
 	}
 	one, two := snapshot.NewAttachmentID([]byte("one")), snapshot.NewAttachmentID([]byte("two"))
-	want := smallSnapshot()
-	want.Attachments = map[snapshot.AttachmentID]snapshot.Attachment{one: {Content: []byte("one")}, two: {Content: []byte("two")}}
-	want.Root.Entries[0].Attachments = []snapshot.AttachmentRef{{Name: "a", ID: one}, {Name: "a", ID: two}}
+	refs := []snapshot.AttachmentRef{{Name: "a", ID: one}, {Name: "a", ID: two}}
+	for name, place := range map[string]func(*snapshot.Entry){
+		"a main version":   func(e *snapshot.Entry) { e.Attachments = refs },
+		"an older version": func(e *snapshot.Entry) { e.History = []snapshot.EntryVersion{{Attachments: refs}} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			want := smallSnapshot()
+			want.Attachments = map[snapshot.AttachmentID]snapshot.Attachment{one: {Content: []byte("one")}, two: {Content: []byte("two")}}
+			place(&want.Root.Entries[0])
+			file := writtenFile(t, want)
+			export := []byte(testkit.DB{Path: file, Password: testkit.Password}.CLI(t, "export"))
 
-	var mismatch *judge.MismatchError
-	if err := program.Check(writtenFile(t, want), want, keys); !errors.As(err, &mismatch) {
-		t.Errorf("got %v, want a mismatch: KeePassXC holds only one of the two", err)
+			var mismatch *judge.MismatchError
+			if err := judge.CompareExport(export, want); !errors.As(err, &mismatch) {
+				t.Errorf("the export gave %v, want a mismatch", err)
+			}
+			if err := program.Check(file, want, keys); !errors.As(err, &mismatch) {
+				t.Errorf("the whole check gave %v, want a mismatch", err)
+			}
+		})
 	}
 }
 

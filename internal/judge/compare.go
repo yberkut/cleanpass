@@ -198,20 +198,22 @@ func (v viewer) version(e *snapshot.EntryVersion) snapshot.EntryVersion {
 		result.QualityCheck = nil
 	}
 	result.AutoType.Associations = slices.Clone(e.AutoType.Associations)
+	refs := e.Attachments
+	if v.rules != nil {
+		// KeePassXC has one attachment for a name, so a repeat with the same bytes loses nothing.
+		// Two with other bytes stay two here and make a difference: KeePassXC cannot hold both, and
+		// which one it keeps changes from run to run, so the check of the bytes cannot settle this.
+		refs = uniqueByNameAndBytes(refs)
+	}
 	// The bytes get their own check, so here an attachment is only a name.
 	result.Attachments = nil
-	for i := range e.Attachments {
-		result.Attachments = append(result.Attachments, snapshot.AttachmentRef{Name: e.Attachments[i].Name})
+	for i := range refs {
+		result.Attachments = append(result.Attachments, snapshot.AttachmentRef{Name: refs[i].Name})
 	}
 	slices.SortFunc(result.Attachments, func(a, b snapshot.AttachmentRef) int { return cmp.Compare(a.Name, b.Name) })
 	result.Fields = v.fields(e.Fields)
-	if v.rules != nil {
-		if !e.CustomIcon.IsZero() {
-			result.IconID = 0
-		}
-		// KeePassXC has one attachment for a name. The check of the bytes sees whether that loses
-		// anything.
-		result.Attachments = slices.Compact(result.Attachments)
+	if v.rules != nil && !e.CustomIcon.IsZero() {
+		result.IconID = 0
 	}
 	return result
 }
