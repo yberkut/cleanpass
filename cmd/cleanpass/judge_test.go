@@ -80,6 +80,7 @@ func commandsOf(t *testing.T, fake *testkit.FakeCLI) map[string]int {
 }
 
 func TestMergeLetsTheRealKeePassXCCheckTheResult(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a, b := divergedPair(t, dir)
 	fake := testkit.NewFakeCLI(t, testkit.FakePlan{})
@@ -105,6 +106,7 @@ func TestMergeLetsTheRealKeePassXCCheckTheResult(t *testing.T) {
 }
 
 func TestTheJudgeStaysOutOfTheFilesOfAPerson(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a, b := divergedPair(t, dir)
 	beforeA, beforeB := digestOf(t, a.Path), digestOf(t, b.Path)
@@ -131,6 +133,7 @@ func TestTheJudgeStaysOutOfTheFilesOfAPerson(t *testing.T) {
 // Each change here is one thing the real program would then see in the result. A check of counts
 // would miss most of them.
 func TestTheJudgeStopsAtEveryDifferenceInWhatKeePassXCSees(t *testing.T) {
+	t.Parallel()
 	a, b := divergedPair(t, t.TempDir())
 	beforeA, beforeB := digestOf(t, a.Path), digestOf(t, b.Path)
 	for name, change := range map[string][2]string{
@@ -165,6 +168,7 @@ func TestTheJudgeStopsAtEveryDifferenceInWhatKeePassXCSees(t *testing.T) {
 }
 
 func TestTheJudgeStopsAtOtherBytesOfAnAttachmentOfAMainVersion(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a, b := divergedPair(t, dir)
 	const other = "other bytes that the file does not hold"
@@ -185,6 +189,7 @@ func TestTheJudgeStopsAtOtherBytesOfAnAttachmentOfAMainVersion(t *testing.T) {
 // keepassxc-cli cannot read an attachment of an older version. It can only save it. So the save
 // here gives a file with other bytes under the same name.
 func TestTheJudgeStopsAtOtherBytesOfAnAttachmentOfAnOlderVersion(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a := testkit.DB{Path: filepath.Join(dir, "a.kdbx"), Password: testkit.Password}.Import(t, mergeableXML())
 	swapped := testkit.DB{Path: filepath.Join(t.TempDir(), "swapped.kdbx"), Password: testkit.Password}.Import(t,
@@ -215,6 +220,7 @@ func sameTitleXML(t *testing.T, secondBytes string) string {
 }
 
 func TestTheJudgeTakesTwoEntriesOnOnePathForWhatTheyAre(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a := testkit.DB{Path: filepath.Join(dir, "a.kdbx"), Password: testkit.Password}.Import(t, sameTitleXML(t, "bytes of the second"))
 	fake := testkit.NewFakeCLI(t, testkit.FakePlan{})
@@ -230,6 +236,7 @@ func TestTheJudgeTakesTwoEntriesOnOnePathForWhatTheyAre(t *testing.T) {
 }
 
 func TestTheJudgeStopsAtOtherBytesOfTheSecondEntryOnOnePath(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a := testkit.DB{Path: filepath.Join(dir, "a.kdbx"), Password: testkit.Password}.Import(t, sameTitleXML(t, "bytes of the second"))
 	swapped := testkit.DB{Path: filepath.Join(t.TempDir(), "swapped.kdbx"), Password: testkit.Password}.Import(t, sameTitleXML(t, "other bytes"))
@@ -242,6 +249,7 @@ func TestTheJudgeStopsAtOtherBytesOfTheSecondEntryOnOnePath(t *testing.T) {
 }
 
 func TestTheJudgeStopsWhenKeePassXCFails(t *testing.T) {
+	t.Parallel()
 	a, b := divergedPair(t, t.TempDir())
 	for _, command := range []string{"export", "attachment-export", "mkdir"} {
 		t.Run(command, func(t *testing.T) {
@@ -257,6 +265,7 @@ func TestTheJudgeStopsWhenKeePassXCFails(t *testing.T) {
 }
 
 func TestTheJudgeStopsAtAnExportThatMakesNoSense(t *testing.T) {
+	t.Parallel()
 	a, b := divergedPair(t, t.TempDir())
 	for name, text := range map[string]string{
 		"nothing":     "",
@@ -278,6 +287,7 @@ func TestTheJudgeStopsAtAnExportThatMakesNoSense(t *testing.T) {
 }
 
 func TestThePasswordGoesToKeePassXCOnlyThroughStdin(t *testing.T) {
+	t.Parallel()
 	const password = "пароль-для-судді " + testkit.Password
 	dir := t.TempDir()
 	a := testkit.DB{Path: filepath.Join(dir, "a.kdbx"), Password: password}.Import(t, mergeableXML())
@@ -315,6 +325,7 @@ func TestThePasswordGoesToKeePassXCOnlyThroughStdin(t *testing.T) {
 
 // The keys of a result differ from copy to copy, and the real program must open each kind.
 func TestTheJudgeOpensAResultWithEveryKindOfKeys(t *testing.T) {
+	t.Parallel()
 	t.Run("a password and a key file", func(t *testing.T) {
 		dir := t.TempDir()
 		key := testkit.NewKeyFile(t, filepath.Join(dir, "мій ключ.bin"), 3)
@@ -353,6 +364,7 @@ func TestTheJudgeOpensAResultWithEveryKindOfKeys(t *testing.T) {
 }
 
 func TestTheJudgeReadsAttachmentsUnderAnyNames(t *testing.T) {
+	t.Parallel()
 	for name, change := range map[string][]string{
 		"names that look like options":  {"<Key>file.bin</Key>", "<Key>--force</Key>", "<Key>same-content.bin</Key>", "<Key>-k</Key>"},
 		"names with spaces and letters": {"<Key>file.bin</Key>", `<Key>файл "з" лапками &amp; пробілом.bin</Key>`},
@@ -383,6 +395,7 @@ func TestTheJudgeReadsAttachmentsUnderAnyNames(t *testing.T) {
 // Bytes reach the Judge whole only through a real stream of bytes. A text stream would change
 // line ends and what is not valid UTF-8, and a false stop would leave the person without a result.
 func TestTheJudgeReadsEveryKindOfBytes(t *testing.T) {
+	t.Parallel()
 	allBytes := make([]byte, 0, 256*4096)
 	for range 4096 {
 		for value := range 256 {
@@ -408,6 +421,7 @@ func TestTheJudgeReadsEveryKindOfBytes(t *testing.T) {
 // removed. So the fake looks at the directories when each call of the real program has ended, and
 // at that moment the Judge has not yet had a chance to clean up.
 func TestTheJudgeLeavesNoClearTextInAnyFile(t *testing.T) {
+	t.Parallel()
 	const canary = "a text only the canary file holds"
 	dir, temp := t.TempDir(), t.TempDir()
 	a, b := divergedPair(t, dir)
@@ -446,6 +460,7 @@ func TestTheJudgeLeavesNoClearTextInAnyFile(t *testing.T) {
 
 // The Judge reads no one's secrets into its messages, whatever the real program sees.
 func TestTheJudgeLeavesNoSecretInTheOutputOfAGoodRun(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a, b := divergedPair(t, dir)
 	got := testkit.Run(t, passwordLines(2), "merge", a.Path, b.Path, "--output", filepath.Join(dir, "new.kdbx"))
@@ -460,6 +475,7 @@ func TestTheJudgeLeavesNoSecretInTheOutputOfAGoodRun(t *testing.T) {
 // The tool runs from a flash drive, in a shell whose PATH may not know KeePassXC. The test is about
 // the place the installers use, so it has nothing to say on a system without such an install.
 func TestMergeFindsKeePassXCInItsInstallPlaceWithoutPath(t *testing.T) {
+	t.Parallel()
 	place := map[string]string{
 		"windows": `C:\Program Files\KeePassXC\keepassxc-cli.exe`,
 		"darwin":  "/Applications/KeePassXC.app/Contents/MacOS/keepassxc-cli",
@@ -477,6 +493,7 @@ func TestMergeFindsKeePassXCInItsInstallPlaceWithoutPath(t *testing.T) {
 }
 
 func TestMergeWarnsAndGoesOnWithoutKeePassXC(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a, b := divergedPair(t, dir)
 	result := testkit.DB{Path: filepath.Join(dir, "new.kdbx"), Password: testkit.Password}
@@ -498,6 +515,7 @@ func TestMergeWarnsAndGoesOnWithoutKeePassXC(t *testing.T) {
 // The program gets the password. A file that only lies in the current directory must not get it,
 // also when PATH leads there. Windows looks in the current directory even without that.
 func TestTheJudgeRunsNoProgramFromTheCurrentDirectory(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a, b := divergedPair(t, dir)
 	fake := testkit.NewFakeCLI(t, testkit.FakePlan{})
@@ -527,6 +545,7 @@ func TestTheJudgeRunsNoProgramFromTheCurrentDirectory(t *testing.T) {
 // Windows runs a .cmd or a .bat file through cmd.exe, and that reads its arguments as a command. The
 // title of an entry in a database would then run as a part of a command.
 func TestTheJudgeRunsNoScriptOnWindows(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS != "windows" {
 		t.Skip("a script takes its arguments as they are on this system")
 	}
@@ -557,6 +576,7 @@ func TestTheJudgeRunsNoScriptOnWindows(t *testing.T) {
 
 // A program from before KDBX 4.1 could not read any result, and that says nothing about the result.
 func TestAProgramThatCannotJudgeGivesAWarning(t *testing.T) {
+	t.Parallel()
 	a, b := divergedPair(t, t.TempDir())
 	for name, tc := range map[string]struct {
 		plan testkit.FakePlan
@@ -588,6 +608,7 @@ func TestAProgramThatCannotJudgeGivesAWarning(t *testing.T) {
 }
 
 func TestAVersionThatIsNewEnoughGetsTheCheck(t *testing.T) {
+	t.Parallel()
 	a, b := divergedPair(t, t.TempDir())
 	for _, version := range []string{"2.7.0", "2.8.1", "3.0.0", "a version of an unknown form"} {
 		t.Run(version, func(t *testing.T) {
