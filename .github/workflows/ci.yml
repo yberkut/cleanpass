@@ -28,8 +28,9 @@ jobs:
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # On a PC with 20 threads the tests take about 6 minutes and the 10 000 scenarios about as many
-    # again. A runner has far fewer threads, and no run on a runner has been measured yet.
+    # On a PC with 20 threads the tests take about 3 minutes and the 10 000 scenarios about 8. A
+    # runner has far fewer threads, and no run on a runner has been measured yet. With 2 parallel
+    # tests the tests of commands alone took 7 minutes on that PC.
     timeout-minutes: 120
     strategy:
       fail-fast: false

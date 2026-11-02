@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yberkut/cleanpass/internal/testkit"
 )
@@ -278,6 +279,35 @@ func TestDifferenceTheNewestMoveCountsAlsoInTheSameGroup(t *testing.T) {
 	}
 	if momentOf(t, ours["location changed"]) <= momentOf(t, theirs["location changed"]) {
 		t.Errorf("the time of the move: %q here, %q in the real merge: this difference may be gone", ours["location changed"], theirs["location changed"])
+	}
+}
+
+// Two copies moved two groups under each other. The real merge never ends and takes a whole
+// processor, seen on 2.7.12. Here the result is a valid tree.
+func TestDifferenceACycleOfGroupsStopsOnlyTheRealMerge(t *testing.T) {
+	t.Parallel()
+	const hang = 20 * time.Second
+	group := func(id, name, location, inside string) string {
+		return `<Group><UUID>` + id + `</UUID><Name>` + name + `</Name><Times><LastModificationTime>2026-01-01T10:00:00Z</LastModificationTime><LocationChanged>` + location + `</LocationChanged></Times><IsExpanded>True</IsExpanded><CustomData><Item><Key>kdbx-4</Key><Value>x</Value></Item></CustomData>` + inside + `</Group>`
+	}
+	const first, second = "AAAAAAAAAAAAAAAAAAAAQA==", "AAAAAAAAAAAAAAAAAAAAUA=="
+	database := func(inside string) string {
+		return `<?xml version="1.0" encoding="UTF-8"?><KeePassFile><Meta><Generator>KeePassXC</Generator></Meta><Root>` + group("AAAAAAAAAAAAAAAAAAAAEA==", "Root", "2026-01-01T10:00:00Z", inside) + `</Root></KeePassFile>`
+	}
+	dir := t.TempDir()
+	a := testkit.DB{Path: filepath.Join(dir, "a.kdbx"), Password: testkit.Password}.Import(t,
+		database(group(first, "Перша", "2026-01-01T10:00:00Z", group(second, "Друга", "2026-02-01T10:00:00Z", ""))))
+	b := testkit.DB{Path: filepath.Join(dir, "b.kdbx"), Password: testkit.Password}.Import(t,
+		database(group(second, "Друга", "2026-01-01T10:00:00Z", group(first, "Перша", "2026-02-02T10:00:00Z", ""))))
+
+	target := copyOf(t, a, "keepassxc.kdbx")
+	if target.CLIWithin(t, hang, "merge", "--same-credentials", b.Path) {
+		t.Error("the real merge has ended: this difference may be gone")
+	}
+
+	seen := seenBy(t, mergedByCleanpass(t, dir, a, b))
+	if want := []string{"", "/Друга", "/Перша"}; !slices.Equal(seen.groups, want) && !slices.Equal(seen.groups, []string{"", "/Друга", "/Друга/Перша"}) && !slices.Equal(seen.groups, []string{"", "/Перша", "/Перша/Друга"}) {
+		t.Errorf("the result has the groups %q, want both in one valid tree", seen.groups)
 	}
 }
 

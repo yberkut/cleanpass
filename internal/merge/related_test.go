@@ -59,6 +59,11 @@ func TestRelatedGroupsByTheRuleOfTheSpec(t *testing.T) {
 			[][]int{{0, 1}},
 		},
 		{
+			"an import with two entries of four similar",
+			[]*snapshot.Snapshot{rootedAt(1, mail(1), bank(2), shop(3), game(4)), rootedAt(2, mail(5), bank(6), login(7, "Forum", "me", "", "x"), login(8, "Wiki", "me", "", "y"))},
+			[][]int{{0, 1}},
+		},
+		{
 			"a share below a half in both copies",
 			[]*snapshot.Snapshot{rootedAt(1, mail(1), bank(2), shop(3)), rootedAt(2, mail(4), game(5), login(6, "Forum", "me", "", "x"))},
 			[][]int{{0}, {1}},

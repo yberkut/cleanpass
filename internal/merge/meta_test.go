@@ -3,6 +3,7 @@ package merge_test
 import (
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/yberkut/cleanpass/internal/merge"
@@ -187,6 +188,34 @@ func TestTheAttachmentsCountForTheLimitOfTheHistorySize(t *testing.T) {
 	}
 }
 
+// gremlins found that no test weighed these two parts of a version.
+func TestLargePartsOfAVersionCountForTheLimitOfTheHistorySize(t *testing.T) {
+	long := strings.Repeat("x", 5000)
+	for name, change := range map[string]func(v *snapshot.EntryVersion){
+		"a sequence of Auto-Type": func(v *snapshot.EntryVersion) {
+			v.AutoType.Associations = []snapshot.AutoTypeAssociation{{Window: "w", KeystrokeSequence: long}}
+		},
+		"a window of Auto-Type": func(v *snapshot.EntryVersion) {
+			v.AutoType.Associations = []snapshot.AutoTypeAssociation{{Window: long, KeystrokeSequence: "s"}}
+		},
+		"a value of custom data": func(v *snapshot.EntryVersion) {
+			v.CustomData = []snapshot.CustomDataItem{{Key: "k", Value: long}}
+		},
+		"a key of custom data": func(v *snapshot.EntryVersion) {
+			v.CustomData = []snapshot.CustomDataItem{{Key: long, Value: "v"}}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			v := version(hours(1), "x")
+			change(&v)
+
+			if got := mergeOf(t, limited(10, 100, entry(v))).Merged.Meta.HistoryMaxSize; got < 5000 {
+				t.Errorf("history max size = %d, want more than the 5000 bytes of this part", got)
+			}
+		})
+	}
+}
+
 func TestALimitThatHoldsTheHistoryStaysAsItIs(t *testing.T) {
 	merged := mergeOf(t, limited(10, 6291456, historyOf(3, 10)), limited(25, 1000000, historyOf(3, 10))).Merged
 
@@ -202,6 +231,15 @@ func TestNoLimitStaysNoLimit(t *testing.T) {
 			t.Errorf("limits = %d and %d, want -1 and -1", merged.Meta.HistoryMaxItems, merged.Meta.HistoryMaxSize)
 		}
 	})
+}
+
+// A limit of zero is a number. It rises as far as the history needs, and it does not mean no limit.
+func TestAZeroLimitRisesAsFarAsTheHistoryNeeds(t *testing.T) {
+	merged := mergeOf(t, limited(0, 0, historyOf(3, 10))).Merged
+
+	if merged.Meta.HistoryMaxItems < 3 || merged.Meta.HistoryMaxSize < 30 {
+		t.Errorf("limits = %d and %d, want room for the three versions", merged.Meta.HistoryMaxItems, merged.Meta.HistoryMaxSize)
+	}
 }
 
 // An entry the human deleted holds no history anymore, so it asks for no higher limit.

@@ -129,6 +129,10 @@ func TestSpeedOfCompareOnFiveThousandEntries(t *testing.T) {
 			t.Logf("compare: file %.1f MB, best %v, middle %v, target %v", float64(info.Size())/1e6, best, middle, compareTarget)
 			statusBest, statusMiddle := timed(t, func() testkit.Result { return testkit.Run(t, passwordLines(2), "status", a.Path, b.Path) })
 			t.Logf("status: best %v, middle %v", statusBest, statusMiddle)
+			// The spec has no target for a merge. It reads each file again and asks KeePassXC.
+			start := time.Now()
+			wantJudged(t, testkit.Run(t, passwordLines(2), "merge", a.Path, b.Path, "--output", filepath.Join(t.TempDir(), "new.kdbx")))
+			t.Logf("merge with the check of KeePassXC: %v", time.Since(start))
 			// The spec does not say "without history", and a database in real use has one.
 			if middle > compareTarget {
 				t.Errorf("compare takes %v, the target is %v", middle, compareTarget)

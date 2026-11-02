@@ -424,7 +424,8 @@ func asKeePassXCWrites(s *snapshot.Snapshot) {
 }
 
 // withoutConflict says the copies hold what the spec calls a scenario without conflicts. A deletion
-// is out as well: here it asks, and the real merge applies it. TestDifference... shows that case.
+// is out as well: here it asks, and the real merge goes another way. A cycle of groups is out,
+// because the real merge never ends on it. TestDifference... shows those cases.
 func withoutConflict(result *merge.Result) bool {
 	for _, q := range result.Questions {
 		switch q.Detail.(type) {
@@ -433,7 +434,12 @@ func withoutConflict(result *merge.Result) bool {
 		}
 	}
 	for _, event := range result.Report {
-		if change, ok := event.(merge.EntryChange); ok && (change.Outcome == merge.OutcomeConflict || change.Outcome == merge.OutcomeAsked) {
+		switch e := event.(type) {
+		case merge.EntryChange:
+			if e.Outcome == merge.OutcomeConflict || e.Outcome == merge.OutcomeAsked {
+				return false
+			}
+		case merge.GroupCycleBroken:
 			return false
 		}
 	}

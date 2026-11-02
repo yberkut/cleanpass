@@ -6,6 +6,7 @@ package testkit
 
 import (
 	"bytes"
+	"context"
 	_ "embed"
 	"errors"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Password opens the fixtures unless a test picks another one. It is synthetic.
@@ -62,20 +64,39 @@ func CLIPath() (string, error) {
 	return "", errors.New("keepassxc-cli not found: install KeePassXC or add it to PATH")
 }
 
+// cliLimit ends a call of keepassxc-cli that hangs. Without it the program stays behind after the
+// test and takes a whole processor: `merge` does that on a cycle of groups.
+const cliLimit = 5 * time.Minute
+
 func runCLI(t testing.TB, stdin string, args ...string) string {
+	t.Helper()
+	stdout, finished := runCLIWithin(t, cliLimit, stdin, args...)
+	if !finished {
+		t.Fatalf("keepassxc-cli %s did not end within %v", args[0], cliLimit)
+	}
+	return stdout
+}
+
+// runCLIWithin says whether the program ended within the limit. A program that fails fails the test.
+func runCLIWithin(t testing.TB, limit time.Duration, stdin string, args ...string) (output string, finished bool) {
 	t.Helper()
 	cli, err := CLIPath()
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(cli, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, cli, args...)
 	cmd.Stdin = strings.NewReader(stdin)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return "", false
+		}
 		t.Fatalf("keepassxc-cli %s: %v\n%s", args[0], err, stderr.String())
 	}
-	return stdout.String()
+	return stdout.String(), true
 }
 
 // Import creates the database from XML with the real keepassxc-cli, at the lowest
@@ -121,8 +142,20 @@ func ImportWithEmptyPassword(t testing.TB, path, xml string) DB {
 // goes right after the options, then args. It returns stdout.
 func (db DB) CLI(t testing.TB, command string, args ...string) string {
 	t.Helper()
-	full := []string{command, "-q"}
-	stdin := ""
+	full, stdin := db.cliCall(command, args)
+	return runCLI(t, stdin, full...)
+}
+
+// CLIWithin is CLI with a limit of time. It says whether the program ended in time.
+func (db DB) CLIWithin(t testing.TB, limit time.Duration, command string, args ...string) bool {
+	t.Helper()
+	full, stdin := db.cliCall(command, args)
+	_, finished := runCLIWithin(t, limit, stdin, full...)
+	return finished
+}
+
+func (db DB) cliCall(command string, args []string) (full []string, stdin string) {
+	full = []string{command, "-q"}
 	if db.Password == "" {
 		full = append(full, "--no-password")
 	} else {
@@ -132,7 +165,7 @@ func (db DB) CLI(t testing.TB, command string, args ...string) string {
 		full = append(full, "-k", db.KeyFile)
 	}
 	full = append(full, db.Path)
-	return runCLI(t, stdin, append(full, args...)...)
+	return append(full, args...), stdin
 }
 
 // ResavedGroup is the group Resave adds. Expected group counts must include it.

@@ -176,6 +176,31 @@ func TestManualCheckSummaryHoldsNoPathAndNoPassword(t *testing.T) {
 	}
 }
 
+// The step with the window of KeePassXC looks for these words in the report. Here keepassxc-cli does
+// what the person does in that window.
+func TestManualCheckLooksForWhatCompareReallySays(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	base := testkit.DB{Path: filepath.Join(dir, "base.kdbx"), Password: testkit.Password}.Import(t, mergeableXML())
+	edited := copyOf(t, base, "edited.kdbx")
+	edited.CLI(t, "edit", "--notes", "нова нотатка", mailEntry)
+	edited.CLI(t, "rm", workEntry)
+
+	got := testkit.Run(t, passwordLines(2), "compare", base.Path, edited.Path)
+
+	wantCode(t, got, 0)
+	script, err := os.ReadFile(manualCheckScript(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, words := range []string{"Копія відстає", "Видалення:"} {
+		wantInOutput(t, string(script), `grep -q "`+words+`"`)
+		wantInOutput(t, got.Stdout, words)
+	}
+	wantInOutput(t, string(script), `grep -q "Версії сперечаються"`)
+	wantNotInOutput(t, got.Stdout, "Версії сперечаються")
+}
+
 func TestManualCheckLeavesNoFiles(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
