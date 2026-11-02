@@ -57,7 +57,7 @@ func TestCompareTakesAMoveToTheBinForADeletion(t *testing.T) {
 // withEntries gives PlainXML with these entries in place of its one entry. Each one has a UUID of
 // its own, by its position, and its fields as XML. An empty item leaves the position free.
 func withEntries(entries ...string) string {
-	ids := []string{"AAAAAAAAAAAAAAAAAAACAA==", "AAAAAAAAAAAAAAAAAAACAQ==", "AAAAAAAAAAAAAAAAAAACAg==", "AAAAAAAAAAAAAAAAAAACAw=="}
+	ids := []string{"AAAAAAAAAAAAAAAAAAACAA==", "AAAAAAAAAAAAAAAAAAACAQ==", "AAAAAAAAAAAAAAAAAAACAg==", "AAAAAAAAAAAAAAAAAAACAw==", "AAAAAAAAAAAAAAAAAAACBA=="}
 	var all strings.Builder
 	for i, content := range entries {
 		if content != "" {

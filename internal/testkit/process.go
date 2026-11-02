@@ -44,13 +44,19 @@ func (b *lockedBuffer) String() string {
 // Start runs the built cleanpass and leaves its stdin open.
 func Start(t testing.TB, args ...string) *Process {
 	t.Helper()
+	return StartWithEnv(t, nil, args...)
+}
+
+// StartWithEnv is Start with variables added to the environment of the test process.
+func StartWithEnv(t testing.TB, env []string, args ...string) *Process {
+	t.Helper()
 	if builtBinary == "" {
 		t.Fatal("testkit.RunMain did not run: add it to TestMain")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	p := &Process{cancel: cancel}
 	p.cmd = exec.CommandContext(ctx, builtBinary, args...)
-	p.cmd.Env = os.Environ()
+	p.cmd.Env = append(os.Environ(), env...)
 	p.cmd.Stdout, p.cmd.Stderr = &p.stdout, &p.stderr
 	var err error
 	if p.stdin, err = p.cmd.StdinPipe(); err != nil {
@@ -79,6 +85,15 @@ func (p *Process) WaitForStderr(t testing.TB, text string) {
 func (p *Process) Send(t testing.TB, line string) {
 	t.Helper()
 	if _, err := io.WriteString(p.stdin, line+"\n"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Interrupt sends the signal of Ctrl+C. Windows has no such signal between processes: a test there
+// presses the key in a console.
+func (p *Process) Interrupt(t testing.TB) {
+	t.Helper()
+	if err := p.cmd.Process.Signal(os.Interrupt); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -13,7 +13,8 @@ import (
 )
 
 // WriteDifferences writes what the merge said about the copies, section by section, each after
-// an empty line. A section with nothing to say stays out. It tells the state before any answer.
+// an empty line. A section with nothing to say stays out. It tells the state before any answer,
+// apart from the sections about what answers did to similar entries.
 func WriteDifferences(w io.Writer, facts merge.Facts) error {
 	out := &writer{w: w}
 	onlyInSome, lagging, disputes := sortedByOutcome(facts.Entries)
@@ -62,6 +63,7 @@ func WriteDifferences(w io.Writer, facts merge.Facts) error {
 			out.line("    ", text.PairRemembered(len(p.Absorbed), p.Copies))
 		}
 	}
+	out.pairsAnswered(&facts)
 	if len(facts.GroupsJoined)+len(facts.GroupCycles) > 0 {
 		out.header(text.SectionGroups)
 		for _, g := range byTitle(facts.GroupsJoined, func(g merge.GroupsJoined) string { return g.Name }) {
@@ -77,11 +79,55 @@ func WriteDifferences(w io.Writer, facts merge.Facts) error {
 	return out.err
 }
 
+// WritePairsAnswered writes what the answers of this run did to similar entries. It writes nothing
+// when they did nothing.
+func WritePairsAnswered(w io.Writer, facts merge.Facts) error {
+	out := &writer{w: w}
+	out.pairsAnswered(&facts)
+	return out.err
+}
+
+func (o *writer) pairsAnswered(facts *merge.Facts) {
+	if len(facts.PairsMerged) > 0 {
+		o.header(text.SectionPairsMerged)
+		for _, p := range byTitle(facts.PairsMerged, func(p merge.PairMerged) string { return p.Label.Title }) {
+			o.line("  ", text.PairMergedInto(labelText(p.Label, p.Entry), len(p.Absorbed)))
+		}
+	}
+	if len(facts.PairsNotMerged) > 0 {
+		o.header(text.SectionPairsNotMerged)
+		for _, p := range byTitle(facts.PairsNotMerged, func(p merge.PairNotMerged) string { return p.First.Label.Title }) {
+			o.line("  ", text.PairHeader(labelText(p.First.Label, p.First.Entry), labelText(p.Second.Label, p.Second.Entry)))
+		}
+	}
+}
+
+// WriteSummary writes the last words about what the merge did.
+func WriteSummary(w io.Writer, summary merge.Summary) error {
+	out := &writer{w: w}
+	out.header(text.SummaryHeader)
+	out.line("  ", text.SummaryAdded(summary.Added))
+	out.line("  ", text.SummaryUpdated(summary.Updated))
+	out.line("  ", text.SummaryKeptInHistory(summary.KeptInHistory))
+	out.line("  ", text.SummaryDeleted(summary.DeletedByDecision))
+	if summary.Absorbed > 0 {
+		out.line("  ", text.SummaryAbsorbed(summary.Absorbed))
+	}
+	return out.err
+}
+
 // WriteUnrelated warns that the copies look like different databases. Each group holds the paths
 // of the copies that look like one database.
 func WriteUnrelated(w io.Writer, groups [][]string) error {
 	out := &writer{w: w}
 	out.header(text.UnrelatedWarning)
+	out.err = WriteUnrelatedGroups(w, groups)
+	return out.err
+}
+
+// WriteUnrelatedGroups names the copies that look like one database, one line for each group.
+func WriteUnrelatedGroups(w io.Writer, groups [][]string) error {
+	out := &writer{w: w}
 	for i, group := range groups {
 		out.line("  ", text.UnrelatedGroup(i+1, group))
 	}
@@ -180,6 +226,11 @@ func (o *writer) deletion(d *merge.DeletionChange) {
 	case merge.DeletionApplied:
 		o.line("    ", text.DeletionDecidedDelete)
 	}
+	o.deletionFacts(&d.Deletion)
+}
+
+// deletionFacts writes what a person weighs in a question about a deletion.
+func (o *writer) deletionFacts(d *merge.Deletion) {
 	o.line("    ", text.DeletionDates(formatTime(d.Deleted), formatTime(d.Modified)))
 	if len(d.Recorded) > 0 {
 		o.line("    ", text.DeletionRecordedIn(d.Recorded))

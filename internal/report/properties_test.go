@@ -119,6 +119,98 @@ func TestPropertyNoSecretsInTheReport(t *testing.T) {
 	})
 }
 
+// dialogOf writes all a person sees of a merge with these answers: each question before the answers,
+// and what came of them after.
+func dialogOf(t rapid.TB, in merge.Input, answer func(i int, q merge.Question) int) (string, merge.Facts) {
+	t.Helper()
+	asked, err := merge.Run(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	for i, q := range asked.Questions {
+		var err error
+		switch detail := q.Detail.(type) {
+		case merge.Conflict:
+			err = report.WriteConflictQuestion(&out, detail)
+		case merge.Deletion:
+			err = report.WriteDeletionQuestion(&out, detail)
+		case merge.SimilarPair:
+			err = report.WritePairQuestion(&out, detail)
+		case merge.IdenticalPairs:
+			err = report.WriteIdenticalPairsQuestion(&out, len(detail.Pairs))
+		default:
+			t.Fatalf("no words for a question of the type %T", q.Detail)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		in.Decisions = append(in.Decisions, merge.Decision{Question: q.ID, Choice: answer(i, q)})
+	}
+	answered, err := merge.Run(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := answered.Facts()
+	for _, write := range []func() error{
+		func() error { return report.WritePairsAnswered(&out, facts) },
+		func() error { return report.WriteDifferences(&out, facts) },
+		func() error { return report.WriteSummary(&out, answered.Summary(in)) },
+	} {
+		if err := write(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return out.String(), facts
+}
+
+// The questions and the words after the answers hold a person's data too, so the same rule holds.
+func TestPropertyNoSecretsInTheDialog(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		s := mergetest.Scenarios().Draw(t, "scenario")
+		withSecretsEverywhere(s)
+		answer := func(_ int, q merge.Question) int { return rapid.IntRange(0, q.Choices-1).Draw(t, "answer") }
+
+		text, facts := dialogOf(t, merge.Input{Copies: s.Copies, Now: s.Now, Key: key}, answer)
+
+		if strings.Contains(text, mergetest.SecretMarker) {
+			t.Fatalf("the dialog holds a secret value:\n%s", text)
+		}
+		if facts.Unknown != 0 {
+			t.Fatalf("the report cannot show %d events or questions after answers:\n%s", facts.Unknown, text)
+		}
+	})
+}
+
+func TestScenariosFillEveryPartOfTheDialog(t *testing.T) {
+	seen := map[string]int{}
+	phrases := []string{
+		"Версії запису сперечаються:", "Різниця менша за 24 години", "Одна з версій має дату з майбутнього", "Найновіша за часом версія вже замінена",
+		"так буде і без відповіді", "відрізняється від версії 1:", "головна в: ",
+		"Запис видалено в одній копії", "лишити запис", "видалити запис", "він лишиться в кошику з усіма версіями",
+		"Схожі записи з різними UUID:", "лишити обидва записи", "злити в один запис",
+		"Пар схожих записів з однаковим вмістом", "вирішувати кожну пару окремо", "злити всі такі пари",
+		"Злиті схожі записи.", "сюди злито записів:",
+		"Підсумок:", "Додано записів", "Оновлено записів", "Збережено в історії", "Видалено записів за вашим рішенням", "Злито схожих записів в інші",
+	}
+	for i := range 500 {
+		s := mergetest.Scenarios().Example(i)
+		withSecretsEverywhere(s)
+		text, _ := dialogOf(t, merge.Input{Copies: s.Copies, Now: s.Now, Key: key}, func(n int, q merge.Question) int { return (i + n) % q.Choices })
+		for _, phrase := range phrases {
+			if strings.Contains(text, phrase) {
+				seen[phrase]++
+			}
+		}
+	}
+	t.Logf("scenarios with each phrase: %v", seen)
+	for _, phrase := range phrases {
+		if seen[phrase] == 0 {
+			t.Errorf("no scenario reaches %q", phrase)
+		}
+	}
+}
+
 // A property says nothing about a part of the report it never fills. So this counts the phrases
 // over a fixed set of scenarios, with the same secrets as above.
 func TestScenariosFillEveryPartOfTheReport(t *testing.T) {

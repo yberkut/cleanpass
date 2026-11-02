@@ -87,6 +87,13 @@ func wantStopped(t *testing.T, got testkit.Result, output string) {
 	wantNoTempFiles(t, filepath.Dir(output))
 }
 
+func removeFile(t *testing.T, path string) {
+	t.Helper()
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func wantNoTempFiles(t *testing.T, dir string) {
 	t.Helper()
 	if found := tempFiles(t, dir); len(found) > 0 {
@@ -210,7 +217,8 @@ func TestMergeGivesAFileKeePassXCReadsWithoutLoss(t *testing.T) {
 	got := testkit.Run(t, passwordLines(2), "merge", a.Path, b.Path, "--output", result.Path)
 
 	wantMerged(t, got)
-	wantUkrainian(t, got.Stdout, got.Stderr, a.Path, b.Path, result.Path)
+	// The report of the copies names the entries that differ, with their logins and sites.
+	wantUkrainian(t, got.Stdout, got.Stderr, a.Path, b.Path, result.Path, "b.example", "mail.example.com", "user@example.com", "quoted")
 	if !strings.Contains(got.Stdout, result.Path) {
 		t.Errorf("the output does not name the result:\n%s", got.Stdout)
 	}
@@ -873,7 +881,7 @@ func TestACopyWithoutAPasswordGivesAResultWithoutAPassword(t *testing.T) {
 func TestTheResultGetsTheKeysThatFit(t *testing.T) {
 	const password = "спільний пароль"
 	for name, stdin := range map[string]string{
-		"typed again after a wrong one": "неправильний\n" + password + "\n\n" + password + "\n",
+		"typed again after a wrong one": "неправильний\n" + password + "\n\n\n" + password + "\n",
 		"Enter repeats the typed one":   password + "\n\n",
 	} {
 		t.Run(name, func(t *testing.T) {

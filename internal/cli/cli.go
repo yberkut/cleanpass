@@ -10,7 +10,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/yberkut/cleanpass/internal/challenge"
 	"github.com/yberkut/cleanpass/internal/gateway"
+	"github.com/yberkut/cleanpass/internal/interrupt"
 	"github.com/yberkut/cleanpass/internal/session"
 	"github.com/yberkut/cleanpass/internal/text"
 )
@@ -49,7 +51,14 @@ func Run(args []string, env Env) int {
 	if !ok {
 		return fail(env, text.UnknownCommand(args[0]))
 	}
-	return run(env, args[1:])
+	// The steps go from the last one added, so these words come after all the others.
+	interrupt.Guard(func() {
+		fmt.Fprintln(env.Stderr)
+		fmt.Fprintln(env.Stderr, text.Interrupted)
+	})
+	code := run(env, args[1:])
+	interrupt.Finish()
+	return code
 }
 
 func fail(env Env, message string) int {
@@ -75,7 +84,7 @@ func parseCopies(args []string) ([]session.Copy, string) {
 		}
 		// Only the name goes into messages: the value could be anything.
 		name, value, hasValue := strings.Cut(arg, "=")
-		if name != "-k" && name != "--key-file" {
+		if !takesAValue(name) {
 			return nil, text.UnknownOption(name)
 		}
 		if len(copies) == 0 {
@@ -88,7 +97,16 @@ func parseCopies(args []string) ([]session.Copy, string) {
 			i++
 			value = args[i]
 		}
-		copies[len(copies)-1].KeyFile = value
+		current := &copies[len(copies)-1]
+		if isKeyFileOption(name) {
+			current.KeyFile = value
+			continue
+		}
+		slot, ok := challenge.ParseSlot(value)
+		if !ok {
+			return nil, text.YubiKeySlotInvalid(name)
+		}
+		current.Slot = slot
 	}
 	if len(copies) == 0 {
 		return nil, text.NoFiles
@@ -96,11 +114,24 @@ func parseCopies(args []string) ([]session.Copy, string) {
 	return copies, ""
 }
 
+func isKeyFileOption(name string) bool { return name == "-k" || name == "--key-file" }
+
+// takesAValue names the options of a copy. Each one takes a value, and the word after it is that
+// value, whatever it looks like.
+func takesAValue(name string) bool {
+	return isKeyFileOption(name) || name == "-y" || name == "--yubikey"
+}
+
 // checkCopies finds what is wrong with the files before anyone types a password.
 func checkCopies(copies []session.Copy) string {
 	for _, c := range copies {
 		if err := gateway.Check(c.Path); err != nil {
 			return describeFileError(c.Path, err)
+		}
+		if c.Slot != 0 {
+			if err := gateway.CheckYubiKey(c.Path); err != nil {
+				return describeFileError(c.Path, err)
+			}
 		}
 		if c.KeyFile != "" {
 			if err := gateway.CheckKeyFile(c.KeyFile); err != nil {
@@ -114,6 +145,8 @@ func checkCopies(copies []session.Copy) string {
 // describeFileError gives the text for the human about an error with a copy.
 func describeFileError(path string, err error) string {
 	switch {
+	case errors.Is(err, session.ErrEchoingTerminal):
+		return text.TerminalShowsPasswords
 	case errors.Is(err, session.ErrNoInput):
 		return text.NoPasswordGiven(path)
 	case errors.Is(err, gateway.ErrNotKDBX):
@@ -128,6 +161,10 @@ func describeFileError(path string, err error) string {
 		return text.KDFLimits(path)
 	case errors.Is(err, gateway.ErrEmptyTime):
 		return text.EmptyTime(path)
+	case errors.Is(err, gateway.ErrYubiKeyKDBX3):
+		return text.YubiKeyNeedsKDBX4(path)
+	case errors.Is(err, challenge.ErrNoProgram):
+		return text.YkmanMissing
 	case errors.Is(err, gateway.ErrCorrupt):
 		return text.DatabaseDamaged(path)
 	case errors.Is(err, fs.ErrNotExist):

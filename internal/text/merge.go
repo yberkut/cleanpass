@@ -10,7 +10,14 @@ const (
 	MergeEngineFailed = "Не вдалося злити копії. Результат не створено, оригінали не змінено."
 	// MergeLossesFound stands in front of the list of what the result would lose.
 	MergeLossesFound = "Перевірка на втрати зупинила злиття: у результаті бракує даних. Результат не створено, оригінали не змінено. Чого бракує:"
+	// MergeStoppedUnrelated stands in front of the groups of copies that look like different databases.
+	MergeStoppedUnrelated = "Злиття зупинено: копії схожі на різні бази. Вони не мають спільного UUID кореневої групи чи запису і мають мало схожих записів. Результат не створено, оригінали не змінено. Копії, схожі між собою:"
 )
+
+// MergeUnrelatedOption names the option that takes off the stop on different databases.
+func MergeUnrelatedOption(option string) string {
+	return fmt.Sprintf("Різні бази зливати не треба. Лише якщо це копії однієї бази, запустіть команду ще раз з опцією %s.", option)
+}
 
 // OptionTwice says that an option came more than once. It names only the option.
 func OptionTwice(name string) string {
@@ -106,6 +113,52 @@ func MergeKeysFrom(path string) string {
 // MergeUnanswered says how many questions the merge settled by the rules without an answer.
 func MergeUnanswered(count int) string {
 	return fmt.Sprintf("Питань без відповіді: %d. Для них діють правила без відповіді, тож жодні дані не зникли.", count)
+}
+
+// What merge says at its end.
+const (
+	// MergeKeysNew says that the keys the person set open the new file.
+	MergeKeysNew = "Новий файл відкривають нові ключі, які ви задали."
+	// MergeDecisionsKept says that the next merge will not ask the same.
+	MergeDecisionsKept = "Ваші відповіді записано в новий файл: наступне злиття не питатиме про те саме."
+	// SummaryHeader stands in front of the counts.
+	SummaryHeader = "Підсумок:"
+	// MergeAllowedUnrelated warns that the protection against different databases is off.
+	MergeAllowedUnrelated = "Попередження: копії схожі на різні бази, але опція дозволила їх злити. Копії, схожі між собою:"
+	// SectionPairsMerged stands in front of the entries that took others in.
+	SectionPairsMerged = "Злиті схожі записи. Версії всіх записів лишились в історії:"
+	// SectionPairsNotMerged stands in front of the pairs that stayed apart against an answer.
+	SectionPairsNotMerged = "Не злито: це зробило б один запис із двох інших, які ви лишили окремо:"
+)
+
+// SummaryAdded counts the entries that only part of the copies held.
+func SummaryAdded(count int) string {
+	return fmt.Sprintf("Додано записів, яких не було в усіх копіях: %d", count)
+}
+
+// SummaryUpdated counts the entries with different main versions in the copies.
+func SummaryUpdated(count int) string {
+	return fmt.Sprintf("Оновлено записів, у яких копії мали різні версії: %d", count)
+}
+
+// SummaryKeptInHistory counts the main versions of the copies that are now in the history.
+func SummaryKeptInHistory(count int) string {
+	return fmt.Sprintf("Збережено в історії колишніх головних версій: %d", count)
+}
+
+// SummaryDeleted counts the entries the person deleted.
+func SummaryDeleted(count int) string {
+	return fmt.Sprintf("Видалено записів за вашим рішенням: %d", count)
+}
+
+// SummaryAbsorbed counts the entries the person merged into others.
+func SummaryAbsorbed(count int) string {
+	return fmt.Sprintf("Злито схожих записів в інші: %d", count)
+}
+
+// PairMergedInto names an entry that took others in.
+func PairMergedInto(label string, count int) string {
+	return fmt.Sprintf("%s: сюди злито записів: %d", label, count)
 }
 
 // Lines about what a result would lose. They name a thing and never hold a value.

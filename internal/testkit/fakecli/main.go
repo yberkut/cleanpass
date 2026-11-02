@@ -15,7 +15,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
+
+	"github.com/yberkut/cleanpass/internal/gateway"
+	"github.com/yberkut/cleanpass/internal/testkit/softkey"
 )
 
 // Plan says how to lie. The test kit has the same type and passes it in PlanVariable.
@@ -31,6 +36,9 @@ type Plan struct {
 	SwapAfterMkdir  string
 	WatchDirs       []string
 	WatchFor        []string
+	HangCommand     string
+	HangMarker      string
+	YubiKeySecret   string
 }
 
 // Call is one line of the log.
@@ -42,6 +50,8 @@ type Call struct {
 	Lied bool
 	// ClearText names the watched files that hold a watched text when the call ends.
 	ClearText []string
+	// forReal is what the real program gets. It differs from Args when it works on a twin.
+	forReal []string
 }
 
 func main() {
@@ -69,6 +79,7 @@ func run(plan *Plan, call *Call) int {
 	if len(call.Args) == 0 {
 		return 91
 	}
+	call.forReal = call.Args
 	command := call.Args[0]
 	if command == "--version" {
 		if plan.VersionFails {
@@ -91,7 +102,26 @@ func run(plan *Plan, call *Call) int {
 		call.Lied = true
 		return 1
 	}
-	switch command {
+	if command == plan.HangCommand {
+		database, err := os.Open(databaseOf(call.Args))
+		if err != nil {
+			fatal(err)
+		}
+		defer database.Close()
+		if err := os.WriteFile(plan.HangMarker, nil, 0o600); err != nil {
+			fatal(err)
+		}
+		time.Sleep(time.Minute)
+		return 1
+	}
+	if plan.YubiKeySecret != "" && slices.Contains(call.Args, slotOption) {
+		return onTwin(plan, call)
+	}
+	return act(plan, call)
+}
+
+func act(plan *Plan, call *Call) int {
+	switch call.Args[0] {
 	case "export":
 		return export(plan, call)
 	case "attachment-export":
@@ -108,6 +138,54 @@ func run(plan *Plan, call *Call) int {
 		return code
 	}
 	return passOn(call, os.Stdout)
+}
+
+// slotOption is the option of the slot, in the form the Judge writes it.
+const slotOption = "--yubikey"
+
+// onTwin runs a call on a copy of the file that opens without the key.
+func onTwin(plan *Plan, call *Call) int {
+	at := slices.Index(call.Args, slotOption)
+	slot, err := strconv.Atoi(call.Args[at+1])
+	if err != nil {
+		fatal(err)
+	}
+	withoutKey := gateway.Credentials{Password: []byte(strings.TrimSuffix(call.Stdin, "\n"))}
+	withKey := withoutKey
+	withKey.YubiKey = softkey.Key{Number: slot, Secret: plan.YubiKeySecret}
+	database := databaseOf(call.Args)
+
+	dir, err := os.MkdirTemp("", "fake-keepassxc-twin-")
+	if err != nil {
+		fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	twin := filepath.Join(dir, "twin.kdbx")
+	relock(database, withKey, twin, withoutKey)
+
+	call.forReal = slices.Delete(slices.Clone(call.Args), at, at+2)
+	call.forReal[slices.Index(call.forReal, "--")+1] = twin
+	code := act(plan, call)
+	if code == 0 && call.Args[0] == "mkdir" {
+		relock(twin, withoutKey, database, withKey)
+	}
+	return code
+}
+
+// relock reads a file with its keys and writes what it holds with other keys and a new salt.
+func relock(from string, fromKeys gateway.Credentials, to string, toKeys gateway.Credentials) {
+	snap, err := gateway.Open(from, fromKeys)
+	if err != nil {
+		fatal(err)
+	}
+	file, err := os.Create(to)
+	if err != nil {
+		fatal(err)
+	}
+	defer file.Close()
+	if err := gateway.Write(file, snap, snap.Format, toKeys); err != nil {
+		fatal(err)
+	}
 }
 
 func export(plan *Plan, call *Call) int {
@@ -131,7 +209,7 @@ func export(plan *Plan, call *Call) int {
 
 // passOn runs the real program with the same arguments and the same stdin.
 func passOn(call *Call, stdout io.Writer) int {
-	program := exec.Command(os.Getenv("FAKE_CLI_REAL"), call.Args...)
+	program := exec.Command(os.Getenv("FAKE_CLI_REAL"), call.forReal...)
 	program.Stdin = strings.NewReader(call.Stdin)
 	// On systems where an attachment comes through the standard output, it must be this stream.
 	program.Stdout = stdout

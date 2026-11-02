@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yberkut/cleanpass/internal/challenge"
 	"github.com/yberkut/cleanpass/internal/gateway"
 	// The name of the package is taken in this package: status has a function named judge.
 	keepassxc "github.com/yberkut/cleanpass/internal/judge"
@@ -23,10 +24,11 @@ func init() { register("merge", runMerge) }
 
 const outputOption = "--output"
 
-// runMerge makes a new file from the copies and never changes them. It asks nothing but the
-// keys for now: every question goes by the rule for no answer.
+// runMerge makes a new file from the copies and never changes them. It shows the report of the
+// copies, leads the person through the decisions, and ends with a summary. A question with no
+// answer goes by its rule, and those rules lose nothing.
 func runMerge(env Env, args []string) int {
-	output, rest, problem := cutOutput(args)
+	options, rest, problem := cutMergeOptions(args)
 	if problem != "" {
 		return fail(env, problem)
 	}
@@ -34,6 +36,7 @@ func runMerge(env Env, args []string) int {
 	if problem != "" {
 		return fail(env, problem)
 	}
+	output := options.output
 	if output == "" {
 		return fail(env, text.MergeNeedsOutput)
 	}
@@ -46,43 +49,118 @@ func runMerge(env Env, args []string) int {
 		return fail(env, describeWriteError(output, err))
 	}
 
-	opened, code, stopped := openForMerge(env, copies)
+	dialog := session.New(env.Stdin, env.Stderr)
+	opened, code, stopped := openForMerge(env, dialog, copies)
 	if stopped {
 		return code
 	}
-	result, err := merge.Run(merge.Input{Copies: opened.forEngine(), Now: time.Now(), Key: merge.NewKey()})
+	related := merge.RelatedGroups(opened.snapshots())
+	if len(related) > 1 && !options.allowUnrelated {
+		code := fail(env, text.MergeStoppedUnrelated)
+		_ = report.WriteUnrelatedGroups(env.Stderr, pathsOfGroups(related, copies))
+		_, _ = fmt.Fprintln(env.Stderr, text.MergeUnrelatedOption(allowUnrelatedOption))
+		return code
+	}
+
+	// One key and one moment for all runs, because the answers refer to the questions of the first.
+	input := merge.Input{Copies: opened.forEngine(), Now: time.Now(), Key: merge.NewKey()}
+	asked, err := merge.Run(input)
 	if err != nil {
 		return fail(env, text.MergeEngineFailed)
 	}
+	if err := writeMergeReport(env, opened, asked.Facts(), input.Now, pathsOfGroups(related, copies)); err != nil {
+		return exitError
+	}
 
-	keysFrom := opened.newest()
-	if err := writeResult(env, output, opened, result.Merged, allowedBy(result), keysFrom); err != nil {
+	answers := dialog.Decide(asked)
+	choice, err := dialog.ChooseKeys(copyPaths(copies), opened.newest())
+	if err != nil {
+		return fail(env, text.NewKeysNotGiven)
+	}
+	result := asked
+	if len(answers.Decisions) > 0 {
+		input.Decisions = answers.Decisions
+		if result, err = merge.Run(input); err != nil {
+			return fail(env, text.MergeEngineFailed)
+		}
+	}
+
+	keys := opened.keysFor(choice)
+	if err := writeResult(env, output, opened, result.Merged, allowedBy(result, answers.Decisions), keys); err != nil {
 		return reportWriteError(env, output, err)
 	}
-
-	lines := []string{text.MergeDone(output), text.MergeKeysFrom(keysFrom.path)}
-	if count := len(result.Questions); count > 0 {
-		lines = append(lines, text.MergeUnanswered(count))
-	}
-	lines = append(lines, text.MergeInputsIntact)
-	for _, line := range lines {
-		if _, err := fmt.Fprintln(env.Stdout, line); err != nil {
-			return exitError
-		}
+	if err := writeMergeEnd(env, output, keys, answers, result, input); err != nil {
+		return exitError
 	}
 	return exitOK
 }
 
-// cutOutput takes --output out of the arguments and leaves the rest as the other commands
-// read them. The word after the option is its value, whatever it looks like: a file can be
-// named --a-merged.kdbx. After -- every word is a file.
-func cutOutput(args []string) (output string, rest []string, problem string) {
+// writeMergeReport shows the state of the copies before any answer: what compare shows, without
+// the next step, since this is that step.
+func writeMergeReport(env Env, opened openedCopies, facts merge.Facts, now time.Time, related [][]string) error {
+	passports := make([]report.Passport, 0, len(opened))
+	for i := range opened {
+		passport, err := passportOf(opened[i].path, opened[i].snap, now)
+		if err != nil {
+			return err
+		}
+		passports = append(passports, passport)
+	}
+	markFreshest(passports)
+	if err := report.WritePassports(env.Stdout, passports); err != nil {
+		return err
+	}
+	if err := report.WriteDifferences(env.Stdout, facts); err != nil {
+		return err
+	}
+	if len(related) > 1 {
+		if _, err := fmt.Fprintln(env.Stdout, "\n"+text.MergeAllowedUnrelated); err != nil {
+			return err
+		}
+		if err := report.WriteUnrelatedGroups(env.Stdout, related); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// writeMergeEnd says what came of the merge. The summary comes last, so a person finds it.
+func writeMergeEnd(env Env, output string, keys resultKeys, answers session.Answers, result *merge.Result, input merge.Input) error {
+	lines := append([]string{"", text.MergeDone(output)}, keys.description...)
+	if answers.Unanswered > 0 {
+		lines = append(lines, text.MergeUnanswered(answers.Unanswered))
+	}
+	if len(answers.Decisions) > 0 {
+		lines = append(lines, text.MergeDecisionsKept)
+	}
+	lines = append(lines, text.MergeInputsIntact)
+	for _, line := range lines {
+		if _, err := fmt.Fprintln(env.Stdout, line); err != nil {
+			return err
+		}
+	}
+	if err := report.WritePairsAnswered(env.Stdout, result.Facts()); err != nil {
+		return err
+	}
+	return report.WriteSummary(env.Stdout, result.Summary(input))
+}
+
+// mergeOptions are the options only merge has.
+type mergeOptions struct {
+	output         string
+	allowUnrelated bool
+}
+
+// cutMergeOptions takes the options of merge out of the arguments and leaves the rest as the
+// other commands read them. The word after --output is its value, whatever it looks like: a file
+// can be named --a-merged.kdbx. After -- every word is a file.
+func cutMergeOptions(args []string) (options mergeOptions, rest []string, problem string) {
 	seen := false
 	take := func(value string) string {
 		if seen {
 			return text.OptionTwice(outputOption)
 		}
-		seen, output = true, value
+		seen, options.output = true, value
 		return ""
 	}
 	for i := 0; i < len(args); i++ {
@@ -90,30 +168,32 @@ func cutOutput(args []string) (output string, rest []string, problem string) {
 		value, hasValue := strings.CutPrefix(arg, outputOption+"=")
 		switch {
 		case arg == "--":
-			return output, append(rest, args[i:]...), ""
-		case arg == "-k" || arg == "--key-file":
+			return options, append(rest, args[i:]...), ""
+		case takesAValue(arg):
 			rest = append(rest, arg)
 			if i+1 < len(args) {
 				i++
 				rest = append(rest, args[i])
 			}
+		case arg == allowUnrelatedOption:
+			options.allowUnrelated = true
 		case hasValue:
 			if problem := take(value); problem != "" {
-				return "", nil, problem
+				return mergeOptions{}, nil, problem
 			}
 		case arg == outputOption:
 			if i+1 == len(args) {
-				return "", nil, text.OptionNeedsValue(outputOption)
+				return mergeOptions{}, nil, text.OptionNeedsValue(outputOption)
 			}
 			i++
 			if problem := take(args[i]); problem != "" {
-				return "", nil, problem
+				return mergeOptions{}, nil, problem
 			}
 		default:
 			rest = append(rest, arg)
 		}
 	}
-	return output, rest, ""
+	return options, rest, ""
 }
 
 func copyPaths(copies []session.Copy) []string {
@@ -135,8 +215,7 @@ type openedCopies []openedCopy
 
 // openForMerge opens each copy. A copy with data a save would not keep ends the work at
 // once, with the places of that data, and no option gets around this.
-func openForMerge(env Env, copies []session.Copy) (opened openedCopies, code int, stopped bool) {
-	dialog := session.New(env.Stdin, env.Stderr)
+func openForMerge(env Env, dialog *session.Session, copies []session.Copy) (opened openedCopies, code int, stopped bool) {
 	for _, c := range copies {
 		snap, keys, err := dialog.OpenWithKeys(c)
 		if err != nil {
@@ -160,16 +239,49 @@ func (o openedCopies) forEngine() []merge.Copy {
 	return result
 }
 
-// newest gives the copy with the newest change: by default its keys, cipher and KDF go to the
-// result. Of copies with the same time the first on the command line counts.
-func (o openedCopies) newest() *openedCopy {
-	best := &o[0]
+func (o openedCopies) snapshots() []*snapshot.Snapshot {
+	result := make([]*snapshot.Snapshot, 0, len(o))
 	for i := range o {
-		if o[i].snap.LastChange().After(best.snap.LastChange()) {
-			best = &o[i]
+		result = append(result, o[i].snap)
+	}
+	return result
+}
+
+// newest gives the position of the copy with the newest change: by default its keys, cipher and
+// KDF go to the result. Of copies with the same time the first on the command line counts.
+func (o openedCopies) newest() int {
+	best := 0
+	for i := range o {
+		if o[i].snap.LastChange().After(o[best].snap.LastChange()) {
+			best = i
 		}
 	}
 	return best
+}
+
+// resultKeys is what protects the result.
+type resultKeys struct {
+	format snapshot.Format
+	keys   gateway.Credentials
+	// description says for the person what opens the result.
+	description []string
+}
+
+func (o openedCopies) keysFor(choice session.KeysChoice) resultKeys {
+	from := &o[choice.FromCopy]
+	result := resultKeys{format: gateway.OutputFormat(from.snap.Format), keys: from.keys}
+	switch key := choice.New.YubiKey; {
+	case !choice.IsNew:
+		result.description = []string{text.MergeKeysFrom(from.path)}
+		if key := from.keys.YubiKey; key != nil {
+			result.description = append(result.description, text.MergeYubiKeyKept(key.Slot()))
+		}
+	case key != nil:
+		result.keys, result.description = choice.New, []string{text.MergeKeysNew, text.MergeYubiKeyNew(key.Slot())}
+	default:
+		result.keys, result.description = choice.New, []string{text.MergeKeysNew}
+	}
+	return result
 }
 
 // lossesError means the Loss Audit found something missing in the written file.
@@ -177,10 +289,12 @@ type lossesError struct{ losses []lossaudit.Loss }
 
 func (e *lossesError) Error() string { return "the audit found losses" }
 
-// allowedBy gives what the merge lets leave its place with no answer in this run: the groups on
-// one path, and the entries an earlier merge has taken into others. An entry the human deleted in
-// an earlier merge is not here: the Loss Audit reads that from the copies by itself.
-func allowedBy(result *merge.Result) lossaudit.Allowed {
+// allowedBy gives what the merge lets leave its place: the groups on one path, the entries a merge
+// has taken into others, now or earlier, and the entries the human deleted in this run. An entry
+// the human deleted in an earlier merge is not here: the Loss Audit reads that from the copies by
+// itself. The deletions of this run come from the answers and not from the engine, so a bug in the
+// engine cannot allow itself to lose an entry.
+func allowedBy(result *merge.Result, decisions []merge.Decision) lossaudit.Allowed {
 	allowed := lossaudit.Allowed{
 		Absorbed:     make(map[snapshot.UUID]snapshot.UUID, len(result.Absorbed)),
 		MergedGroups: result.MergedGroups,
@@ -188,13 +302,17 @@ func allowedBy(result *merge.Result) lossaudit.Allowed {
 	for _, a := range result.Absorbed {
 		allowed.Absorbed[a.Absorbed] = a.Into
 	}
+	for _, d := range decisions {
+		if id, deletes := d.DeletesEntry(); deletes {
+			allowed.Deleted = append(allowed.Deleted, id)
+		}
+	}
 	return allowed
 }
 
 // writeResult runs the write protocol. The checks look at what the file really holds, not at
 // what the merge gave.
-func writeResult(env Env, output string, opened openedCopies, merged *snapshot.Snapshot, allowed lossaudit.Allowed, keysFrom *openedCopy) error {
-	format := gateway.OutputFormat(keysFrom.snap.Format)
+func writeResult(env Env, output string, opened openedCopies, merged *snapshot.Snapshot, allowed lossaudit.Allowed, keys resultKeys) error {
 	inputs := make([]safewriter.Input, 0, len(opened))
 	sources := make([]*snapshot.Snapshot, 0, len(opened))
 	for i := range opened {
@@ -205,9 +323,9 @@ func writeResult(env Env, output string, opened openedCopies, merged *snapshot.S
 	return safewriter.Run(safewriter.Plan{
 		Target: output,
 		Inputs: inputs,
-		Encode: func(w io.Writer) error { return gateway.Write(w, merged, format, keysFrom.keys) },
+		Encode: func(w io.Writer) error { return gateway.Write(w, merged, keys.format, keys.keys) },
 		ReadBack: func(temp string) (err error) {
-			written, err = gateway.ReadBack(temp, merged, format, keysFrom.keys)
+			written, err = gateway.ReadBack(temp, merged, keys.format, keys.keys)
 			return err
 		},
 		Audit: func() error {
@@ -216,7 +334,15 @@ func writeResult(env Env, output string, opened openedCopies, merged *snapshot.S
 			}
 			return nil
 		},
-		Judge: outsideCheck(env, merged, keysFrom.keys),
+		Judge: outsideCheck(env, merged, keys.keys),
+		Interrupted: func(left safewriter.Interruption) {
+			if left.TempLeft != "" {
+				fmt.Fprintln(env.Stderr, text.InterruptedTempLeft(left.TempLeft))
+			}
+			if left.Published {
+				fmt.Fprintln(env.Stderr, text.InterruptedAfterPublish(output))
+			}
+		},
 	})
 }
 
@@ -233,7 +359,15 @@ func outsideCheck(env Env, expected *snapshot.Snapshot, keys gateway.Credentials
 		if _, err := fmt.Fprintln(env.Stderr, text.JudgeWorking); err != nil {
 			return err
 		}
+		if keys.YubiKey != nil {
+			if _, err := fmt.Fprintln(env.Stderr, text.JudgeTouches(keepassxc.Touches(expected))); err != nil {
+				return err
+			}
+		}
 		if err := program.Check(temp, expected, keys); err != nil {
+			if keys.YubiKey != nil && errors.Is(err, keepassxc.ErrCannotRead) {
+				_, _ = fmt.Fprintln(env.Stderr, text.JudgeMaybeNoTouch)
+			}
 			return err
 		}
 		_, err = fmt.Fprintln(env.Stdout, text.JudgeAgrees)
@@ -272,6 +406,8 @@ func describeWriteError(output string, err error) string {
 		return text.JudgeDiffers(judged.Place)
 	case errors.Is(err, keepassxc.ErrCannotRead):
 		return text.JudgeCannotRead
+	case errors.Is(err, challenge.ErrNoResponse):
+		return text.MergeYubiKeyNoResponse
 	case errors.Is(err, safewriter.ErrTargetExists):
 		return text.MergeTargetExists(output)
 	case errors.Is(err, safewriter.ErrTargetIsInput):

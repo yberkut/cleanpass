@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/signal"
+	"time"
 
 	"golang.org/x/term"
 
+	"github.com/yberkut/cleanpass/internal/challenge"
 	"github.com/yberkut/cleanpass/internal/gateway"
+	"github.com/yberkut/cleanpass/internal/interrupt"
 	"github.com/yberkut/cleanpass/internal/snapshot"
 	"github.com/yberkut/cleanpass/internal/text"
 )
@@ -19,13 +21,21 @@ import (
 // ErrNoInput means stdin ended before the person gave an answer.
 var ErrNoInput = errors.New("stdin ended")
 
-// exitInterrupted is the exit code after Ctrl+C during hidden input.
-const exitInterrupted = 130
+// ErrEchoingTerminal means a person types into a terminal that would show a password as it is
+// typed, and the program cannot hide it.
+var ErrEchoingTerminal = errors.New("this terminal shows what is typed")
+
+// settleAfterEnd is how long a read that ended on a terminal waits for Ctrl+C to take over. A
+// console of Windows ends the read at Ctrl+C, and the signal comes a moment later. Without this
+// wait the person who pressed Ctrl+C would get a result by the rules for no answer.
+const settleAfterEnd = 300 * time.Millisecond
 
 // Copy is one input file with what the command line says about it.
 type Copy struct {
 	Path    string
 	KeyFile string
+	// Slot is the slot of a YubiKey, or 0 when the copy has none.
+	Slot int
 }
 
 // Session reads from stdin and writes questions to prompts.
@@ -34,11 +44,17 @@ type Session struct {
 	prompts io.Writer
 	// typed is the last password the person typed in this run.
 	typed []byte
+	// finished says no more answers come: the input ended, or the person said to stop asking.
+	finished bool
+	// responder keeps the responses of a key for the whole run, so that a retry needs no new touch.
+	responder *challenge.Responder
 }
 
 // New starts a dialog. Questions go to prompts, so that stdout holds only the result.
 func New(stdin *os.File, prompts io.Writer) *Session {
-	return &Session{stdin: stdin, prompts: prompts}
+	s := &Session{stdin: stdin, prompts: prompts}
+	s.responder = challenge.New(func(slot int) { s.say(text.TouchYubiKey(slot)) })
+	return s
 }
 
 // Open asks for the keys of a copy until they fit, and gives its Snapshot.
@@ -49,38 +65,58 @@ func (s *Session) Open(c Copy) (*snapshot.Snapshot, error) {
 
 // OpenWithKeys is Open that also gives the keys that fit, so that a result can have them.
 //
-// The first try asks only for the password. A retry also asks for the key file, so
-// that a database with one needs no restart. An answer counts for that try only: Enter
-// goes back to what the command line said.
+// The first try asks only for the password. A retry also asks for the key file and the slot of a
+// YubiKey, so that a database with those needs no restart. An answer counts for that try only:
+// Enter goes back to what the command line said.
 func (s *Session) OpenWithKeys(c Copy) (*snapshot.Snapshot, gateway.Credentials, error) {
+	if c.Slot != 0 {
+		if err := s.responder.Ready(); err != nil {
+			return nil, gateway.Credentials{}, err
+		}
+	}
 	for retry := false; ; retry = true {
 		passwords, err := s.askPassword(c.Path)
 		if err != nil {
 			return nil, gateway.Credentials{}, err
 		}
-		keyFile := c.KeyFile
+		keyFile, slot := c.KeyFile, c.Slot
 		if retry {
 			if keyFile, err = s.askKeyFile(c.Path, c.KeyFile); err != nil {
 				return nil, gateway.Credentials{}, err
 			}
+			if slot, err = s.askSlot(c.Path, c.Slot); err != nil {
+				return nil, gateway.Credentials{}, err
+			}
 		}
-		snap, keys, err := tryPasswords(c.Path, passwords, keyFile)
+		snap, keys, err := s.tryPasswords(c.Path, passwords, keyFile, slot)
 		switch {
 		case errors.Is(err, gateway.ErrWrongCredentials):
-			s.say(text.WrongCredentials(c.Path))
+			s.say(wrongCredentials(c.Path, slot))
 		case errors.Is(err, gateway.ErrKeyFile):
 			s.say(text.KeyFileUnreadable(keyFile))
+		case errors.Is(err, challenge.ErrNoResponse):
+			s.say(text.YubiKeyNoResponse(slot))
 		default:
 			return snap, keys, err
 		}
 	}
 }
 
+func wrongCredentials(path string, slot int) string {
+	if slot != 0 {
+		return text.WrongCredentialsWithYubiKey(path, slot)
+	}
+	return text.WrongCredentials(path)
+}
+
 // tryPasswords stops at the first password that fits.
-func tryPasswords(path string, passwords [][]byte, keyFile string) (*snapshot.Snapshot, gateway.Credentials, error) {
+func (s *Session) tryPasswords(path string, passwords [][]byte, keyFile string, slot int) (*snapshot.Snapshot, gateway.Credentials, error) {
 	var err error
 	for _, password := range passwords {
 		keys := gateway.Credentials{Password: password, KeyFile: keyFile}
+		if slot != 0 {
+			keys.YubiKey = s.responder.Key(slot)
+		}
 		var snap *snapshot.Snapshot
 		snap, err = gateway.Open(path, keys)
 		if !errors.Is(err, gateway.ErrWrongCredentials) {
@@ -98,6 +134,9 @@ func (s *Session) say(line string) {
 // for three things the person cannot tell apart at a prompt: the password typed before,
 // no password at all, and the empty password, which is a different key.
 func (s *Session) askPassword(path string) ([][]byte, error) {
+	if echoesTyping(s.stdin) {
+		return nil, ErrEchoingTerminal
+	}
 	fmt.Fprint(s.prompts, text.PasswordPrompt(path, s.typed != nil))
 	line, err := s.readSecret()
 	if err != nil {
@@ -115,10 +154,7 @@ func (s *Session) askPassword(path string) ([][]byte, error) {
 
 func (s *Session) askKeyFile(path, current string) (string, error) {
 	fmt.Fprint(s.prompts, text.KeyFilePrompt(path, current))
-	line, err := readLine(s.stdin)
-	if !s.isTerminal() {
-		fmt.Fprintln(s.prompts) // no Enter from a person ended the line of the prompt
-	}
+	line, err := s.readPlainLine()
 	if errors.Is(err, ErrNoInput) {
 		return current, nil
 	}
@@ -131,7 +167,41 @@ func (s *Session) askKeyFile(path, current string) (string, error) {
 	return string(line), nil
 }
 
+// askSlot asks until the answer is a slot. The message about a bad answer does not repeat it: a
+// person who lost count of the questions may have typed a password here.
+func (s *Session) askSlot(path string, current int) (int, error) {
+	for {
+		fmt.Fprint(s.prompts, text.YubiKeySlotPrompt(path, current))
+		line, err := s.readPlainLine()
+		if errors.Is(err, ErrNoInput) {
+			return current, nil
+		}
+		if err != nil {
+			return 0, err
+		}
+		if len(line) == 0 {
+			return current, nil
+		}
+		if slot, ok := challenge.ParseSlot(string(line)); ok {
+			return slot, nil
+		}
+		s.say(text.YubiKeySlotAnswerInvalid)
+	}
+}
+
 func (s *Session) isTerminal() bool { return term.IsTerminal(int(s.stdin.Fd())) }
+
+// readPlainLine reads a line anyone may see. It ends the line of the prompt when no Enter from a
+// person did that.
+func (s *Session) readPlainLine() ([]byte, error) {
+	line, err := readLine(s.stdin)
+	if !s.isTerminal() {
+		fmt.Fprintln(s.prompts)
+	} else if err != nil {
+		time.Sleep(settleAfterEnd)
+	}
+	return line, err
+}
 
 // readSecret reads a line that must not show on the screen. It ends the line of the
 // prompt itself, because neither hidden input nor a pipe does that.
@@ -142,6 +212,7 @@ func (s *Session) readSecret() ([]byte, error) {
 	}
 	line, err := readHidden(int(s.stdin.Fd()))
 	if errors.Is(err, io.EOF) {
+		time.Sleep(settleAfterEnd)
 		return nil, ErrNoInput
 	}
 	return line, err
@@ -154,19 +225,7 @@ func readHidden(fd int) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	interrupt := make(chan os.Signal, 1)
-	done := make(chan struct{})
-	signal.Notify(interrupt, os.Interrupt)
-	defer signal.Stop(interrupt)
-	defer close(done)
-	go func() {
-		select {
-		case <-interrupt:
-			_ = term.Restore(fd, state)
-			os.Exit(exitInterrupted)
-		case <-done:
-		}
-	}()
+	defer interrupt.Guard(func() { _ = term.Restore(fd, state) })()
 	return term.ReadPassword(fd)
 }
 

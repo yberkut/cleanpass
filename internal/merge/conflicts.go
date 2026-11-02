@@ -168,8 +168,10 @@ func (m *merger) askAboutVersions(e *entryState, detail Conflict, asked []versio
 			Differences: differences(first, &v.data),
 		}
 	}
+	id := QuestionID("conflict:" + e.uuid.String())
+	m.noteAsked(id, answers...)
 	choice, answered := m.ask(Question{
-		ID:      QuestionID("conflict:" + e.uuid.String()),
+		ID:      id,
 		Choices: len(answers),
 		Detail:  detail,
 	})

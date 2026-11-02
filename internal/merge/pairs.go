@@ -123,6 +123,7 @@ func askAboutPairs(m *merger) {
 		}
 		detail := pair.detail()
 		id := QuestionID("pair:" + pair.first.uuid.String() + ":" + pair.second.uuid.String())
+		m.noteAsked(id, pair.first.ruleMain, pair.second.ruleMain)
 		pair.answer, pair.answered = m.ask(Question{ID: id, Choices: 2, Detail: detail})
 		pair.sameContent = detail.SameContent
 		if detail.SameContent {

@@ -27,37 +27,25 @@ func runCompare(env Env, args []string) int {
 	}
 
 	dialog := session.New(env.Stdin, env.Stderr)
+	now := time.Now()
 	passports := make([]report.Passport, 0, len(copies))
 	files := make([]*distinctFile, 0, len(copies))
+	snapshots := make([]*snapshot.Snapshot, 0, len(copies))
 	for _, c := range copies {
 		snap, err := dialog.Open(c)
 		if err != nil {
 			return fail(env, describeFileError(c.Path, err))
 		}
-		info, err := os.Stat(c.Path)
+		passport, err := passportOf(c.Path, snap, now)
 		if err != nil {
 			return fail(env, describeFileError(c.Path, err))
 		}
-		passports = append(passports, report.Passport{
-			Path:       c.Path,
-			Size:       info.Size(),
-			FileDate:   info.ModTime(),
-			LastChange: snap.LastChange(),
-			Stats:      snap.Stats(),
-			Format:     snap.Format,
-
-			FieldLosses: snap.FieldLosses,
-		})
+		passports = append(passports, passport)
 		files = append(files, &distinctFile{copies: []session.Copy{c}, snap: snap})
+		snapshots = append(snapshots, snap)
 	}
 	markFreshest(passports)
 
-	now := time.Now()
-	snapshots := make([]*snapshot.Snapshot, len(files))
-	for i, file := range files {
-		snapshots[i] = file.snap
-		passports[i].FromTheFuture = stampFromTheFuture(file.snap, now)
-	}
 	merged, err := judge(files, now)
 	if err != nil {
 		return fail(env, text.StatusFailed)
@@ -76,6 +64,24 @@ func runCompare(env Env, args []string) int {
 		}
 	}
 	return say(env, exitOK, append([]string{""}, nextStep(files, args, facts, len(related) > 1)...)...)
+}
+
+// passportOf gives what the report shows about one copy.
+func passportOf(path string, snap *snapshot.Snapshot, now time.Time) (report.Passport, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return report.Passport{}, err
+	}
+	return report.Passport{
+		Path:          path,
+		Size:          info.Size(),
+		FileDate:      info.ModTime(),
+		LastChange:    snap.LastChange(),
+		Stats:         snap.Stats(),
+		Format:        snap.Format,
+		FromTheFuture: stampFromTheFuture(snap, now),
+		FieldLosses:   snap.FieldLosses,
+	}, nil
 }
 
 // allowUnrelatedOption takes off the stop of merge on copies of different databases.

@@ -67,8 +67,8 @@ func TestLinesWithWindowsEndingsAndNoLastEndingWork(t *testing.T) {
 
 func TestWrongPasswordGivesAClearErrorAndANewTry(t *testing.T) {
 	copies := newCopies(t, "правильний")
-	// Wrong password; then the right one and Enter at the question about the key file.
-	got := testkit.Run(t, "хибний\nправильний\n\n", compareArgs(copies)...)
+	// Wrong password; then the right one and Enter at the questions about the key file and the slot.
+	got := testkit.Run(t, "хибний\nправильний\n\n\n", compareArgs(copies)...)
 	wantOpened(t, got, copies)
 	if !strings.Contains(got.Stderr, "Неправильний пароль або файл-ключ для "+copies[0].Path) {
 		t.Errorf("no clear error:\n%s", got.Stderr)
@@ -79,8 +79,8 @@ func TestWrongPasswordGivesAClearErrorAndANewTry(t *testing.T) {
 func TestEnterRepeatsTheLastPasswordAfterARetry(t *testing.T) {
 	copies := newCopies(t, "перший", "другий", "другий")
 	// a: first password. b: Enter repeats it and fails, then the right one, then Enter
-	// at the question about the key file. c: Enter repeats the right one.
-	got := testkit.Run(t, "перший\n\nдругий\n\n\n", compareArgs(copies)...)
+	// at the questions about the key file and the slot. c: Enter repeats the right one.
+	got := testkit.Run(t, "перший\n\nдругий\n\n\n\n", compareArgs(copies)...)
 	wantOpened(t, got, copies)
 }
 
@@ -148,7 +148,8 @@ func TestMissingKeyFileInAnAnswerGivesANewTry(t *testing.T) {
 	copies := []testkit.DB{testkit.DB{Path: filepath.Join(dir, "a.kdbx"), Password: testkit.Password, KeyFile: key}.Import(t, testkit.RichXML())}
 	missing := filepath.Join(dir, "немає.key")
 
-	stdin := testkit.Password + "\n\n" + missing + "\n\n" + key + "\n"
+	// A retry takes three lines: the password, the key file and the slot.
+	stdin := testkit.Password + "\n\n" + missing + "\n\n\n" + key + "\n"
 	got := testkit.Run(t, stdin, compareArgs(copies)...)
 	wantOpened(t, got, copies)
 	if !strings.Contains(got.Stderr, "Не вдалося прочитати файл-ключ "+missing) {
