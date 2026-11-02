@@ -28,7 +28,9 @@ jobs:
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    # On a PC with 20 threads the tests take about 6 minutes and the 10 000 scenarios about as many
+    # again. A runner has far fewer threads, and no run on a runner has been measured yet.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -132,9 +134,9 @@ jobs:
         run: go vet ./...
 
       # -count=1: the Go cache does not know about keepassxc-cli, so a cached result could
-      # hide a change of KeePassXC.
+      # hide a change of KeePassXC. cmd/cleanpass alone can pass the default 10 minutes.
       - name: Test
-        run: go test -count=1 ./...
+        run: go test -count=1 -timeout 60m ./...
 
       # The library copy has its own go.mod, and the spec wants its full suite on each
       # update. A test in cmd/cleanpass runs it too, but this step gives it a line of its
@@ -143,8 +145,27 @@ jobs:
         working-directory: third_party/gokeepasslib
         run: go test -count=1 ./...
 
-      # Ticket #16 runs the merge scenarios here. matrix.scenarios holds the target of the
-      # spec: 10 000 on Linux, at least 1 000 on macOS and Windows.
+      # matrix.scenarios holds the target of the spec: 10 000 on Linux, at least 1 000 on macOS and
+      # Windows. The flag goes after the packages, and bash keeps it in one piece on every OS. rapid
+      # takes 100 by itself, so the log has to show the number really ran.
+      - name: Merge scenarios
+        shell: bash
+        env:
+          SCENARIOS: ${{ matrix.scenarios }}
+        run: |
+          go test -count=1 -timeout 90m -v ./internal/merge ./internal/lossaudit ./internal/report "-rapid.checks=$SCENARIOS" | tee "$RUNNER_TEMP/scenarios.txt"
+          echo "Properties that ran $SCENARIOS scenarios: $(grep -c "passed $SCENARIOS tests" "$RUNNER_TEMP/scenarios.txt")"
+          grep -q "passed $SCENARIOS tests" "$RUNNER_TEMP/scenarios.txt"
+
+      # The speed targets of the spec. The numbers go to the log, and a runner shared with others
+      # says little about them, so a miss does not stop the job. docs/acceptance.md holds the
+      # numbers of a quiet PC.
+      - name: Measure speed
+        continue-on-error: true
+        env:
+          CLEANPASS_SPEED: "1"
+          CLEANPASS_SPEED_HISTORY: "0,1"
+        run: go test -count=1 -timeout 20m -run TestSpeed -v ./cmd/cleanpass
 
       # Every target builds from every OS: "from one PC" holds wherever this runs.
       - name: Build every target

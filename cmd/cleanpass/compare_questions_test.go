@@ -15,6 +15,7 @@ const (
 
 // A record about a deletion needs a bin that is off: otherwise rm only moves the entry to the bin.
 func TestCompareShowsADeletionWithItsDatesAndCopies(t *testing.T) {
+	t.Parallel()
 	noBin := strings.Replace(testkit.RichXML(), "<RecycleBinEnabled>True<", "<RecycleBinEnabled>False<", 1)
 	dir := t.TempDir()
 	kept := newCopy(t, dir, "kept.kdbx", noBin)
@@ -40,6 +41,7 @@ func TestCompareShowsADeletionWithItsDatesAndCopies(t *testing.T) {
 }
 
 func TestCompareTakesAMoveToTheBinForADeletion(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	kept := newCopy(t, dir, "kept.kdbx", testkit.RichXML())
 	recycled := copyOf(t, kept, "recycled.kdbx")
@@ -79,6 +81,7 @@ func fields(pairs ...string) string {
 }
 
 func TestCompareShowsSimilarEntriesAndNoPassword(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name          string
 		first, second string

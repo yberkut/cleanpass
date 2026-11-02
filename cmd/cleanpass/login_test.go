@@ -45,12 +45,14 @@ func wantOpened(t *testing.T, got testkit.Result, copies []testkit.DB) {
 }
 
 func TestEachCopyHasItsOwnPassword(t *testing.T) {
+	t.Parallel()
 	copies := newCopies(t, "пароль-один", "пароль-два")
 	got := testkit.Run(t, "пароль-один\nпароль-два\n", compareArgs(copies)...)
 	wantOpened(t, got, copies)
 }
 
 func TestEnterRepeatsTheTypedPassword(t *testing.T) {
+	t.Parallel()
 	copies := newCopies(t, "спільний пароль", "спільний пароль", "спільний пароль")
 	got := testkit.Run(t, "спільний пароль\n\n\n", compareArgs(copies)...)
 	wantOpened(t, got, copies)
@@ -60,12 +62,14 @@ func TestEnterRepeatsTheTypedPassword(t *testing.T) {
 }
 
 func TestLinesWithWindowsEndingsAndNoLastEndingWork(t *testing.T) {
+	t.Parallel()
 	copies := newCopies(t, "пароль-один", "пароль-два")
 	got := testkit.Run(t, "пароль-один\r\nпароль-два", compareArgs(copies)...)
 	wantOpened(t, got, copies)
 }
 
 func TestWrongPasswordGivesAClearErrorAndANewTry(t *testing.T) {
+	t.Parallel()
 	copies := newCopies(t, "правильний")
 	// Wrong password; then the right one and Enter at the questions about the key file and the slot.
 	got := testkit.Run(t, "хибний\nправильний\n\n\n", compareArgs(copies)...)
@@ -77,6 +81,7 @@ func TestWrongPasswordGivesAClearErrorAndANewTry(t *testing.T) {
 }
 
 func TestEnterRepeatsTheLastPasswordAfterARetry(t *testing.T) {
+	t.Parallel()
 	copies := newCopies(t, "перший", "другий", "другий")
 	// a: first password. b: Enter repeats it and fails, then the right one, then Enter
 	// at the questions about the key file and the slot. c: Enter repeats the right one.
@@ -85,6 +90,7 @@ func TestEnterRepeatsTheLastPasswordAfterARetry(t *testing.T) {
 }
 
 func TestStdinEndsBeforeAPasswordCame(t *testing.T) {
+	t.Parallel()
 	copies := newCopies(t, "перший", "другий")
 	for _, tc := range []struct {
 		name  string
@@ -110,6 +116,7 @@ func TestStdinEndsBeforeAPasswordCame(t *testing.T) {
 }
 
 func TestKeyFileIsSetForEachCopySeparately(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	keyA := testkit.NewKeyFile(t, filepath.Join(dir, "a.key"), 1)
 	keyB := testkit.NewKeyFile(t, filepath.Join(dir, "b.key"), 2)
@@ -130,6 +137,7 @@ func TestKeyFileIsSetForEachCopySeparately(t *testing.T) {
 }
 
 func TestKeyFileCanBeGivenByAnswerToAQuestion(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	key := testkit.NewKeyFile(t, filepath.Join(dir, "ключ.key"), 1)
 	copies := []testkit.DB{testkit.DB{Path: filepath.Join(dir, "a.kdbx"), Password: testkit.Password, KeyFile: key}.Import(t, testkit.RichXML())}
@@ -143,6 +151,7 @@ func TestKeyFileCanBeGivenByAnswerToAQuestion(t *testing.T) {
 }
 
 func TestMissingKeyFileInAnAnswerGivesANewTry(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	key := testkit.NewKeyFile(t, filepath.Join(dir, "ключ.key"), 1)
 	copies := []testkit.DB{testkit.DB{Path: filepath.Join(dir, "a.kdbx"), Password: testkit.Password, KeyFile: key}.Import(t, testkit.RichXML())}
@@ -158,6 +167,7 @@ func TestMissingKeyFileInAnAnswerGivesANewTry(t *testing.T) {
 }
 
 func TestWrongKeyFileOptionCanBeCorrectedByAnAnswer(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	key := testkit.NewKeyFile(t, filepath.Join(dir, "right.key"), 1)
 	wrong := testkit.NewKeyFile(t, filepath.Join(dir, "wrong.key"), 2)
@@ -168,6 +178,7 @@ func TestWrongKeyFileOptionCanBeCorrectedByAnAnswer(t *testing.T) {
 }
 
 func TestDatabaseWithOnlyAKeyFileOpensWithEnter(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	key := testkit.NewKeyFile(t, filepath.Join(dir, "k.key"), 1)
 	db := testkit.DB{Path: filepath.Join(dir, "a.kdbx"), KeyFile: key}.Import(t, testkit.RichXML())
@@ -178,6 +189,7 @@ func TestDatabaseWithOnlyAKeyFileOpensWithEnter(t *testing.T) {
 }
 
 func TestEnterAlsoOpensACopyWithoutAPasswordAfterAPasswordWasTyped(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	key := testkit.NewKeyFile(t, filepath.Join(dir, "k.key"), 1)
 	withPassword := testkit.DB{Path: filepath.Join(dir, "a.kdbx"), Password: testkit.Password}.Import(t, testkit.RichXML())
@@ -188,6 +200,7 @@ func TestEnterAlsoOpensACopyWithoutAPasswordAfterAPasswordWasTyped(t *testing.T)
 }
 
 func TestEnterOpensADatabaseWithAnEmptyPassword(t *testing.T) {
+	t.Parallel()
 	db := testkit.ImportWithEmptyPassword(t, filepath.Join(t.TempDir(), "a.kdbx"), testkit.RichXML())
 
 	got := testkit.Run(t, "\n", "compare", db.Path)
@@ -195,6 +208,7 @@ func TestEnterOpensADatabaseWithAnEmptyPassword(t *testing.T) {
 }
 
 func TestMasterPasswordDoesNotComeFromArgumentsOrEnvironment(t *testing.T) {
+	t.Parallel()
 	const password = "SECRET-MARKER-майстер-пароль"
 	db := testkit.DB{Path: filepath.Join(t.TempDir(), "a.kdbx"), Password: password}.Import(t, testkit.RichXML())
 

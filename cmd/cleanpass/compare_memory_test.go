@@ -22,6 +22,7 @@ func withGroup(groups ...string) string {
 }
 
 func TestCompareSaysWhichGroupsWillJoin(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a := rawCopy(t, dir, "a.kdbx", withGroup(groupXML("AAAAAAAAAAAAAAAAAAADAA==", "Робота", v1, "")))
 	b := rawCopy(t, dir, "b.kdbx", withGroup(groupXML("AAAAAAAAAAAAAAAAAAADAQ==", "Робота", v1, "")))
@@ -33,6 +34,7 @@ func TestCompareSaysWhichGroupsWillJoin(t *testing.T) {
 }
 
 func TestCompareSaysWhichGroupLeavesACycle(t *testing.T) {
+	t.Parallel()
 	const first, second = "AAAAAAAAAAAAAAAAAAADAA==", "AAAAAAAAAAAAAAAAAAADAQ=="
 	dir := t.TempDir()
 	a := rawCopy(t, dir, "a.kdbx", withGroup(groupXML(first, "Перша", v1, groupXML(second, "Друга", v2, ""))))
@@ -67,6 +69,7 @@ func withRecord(stamp string) string {
 }
 
 func TestCompareToldTheAnswerAboutADeletionFromAnEarlierMerge(t *testing.T) {
+	t.Parallel()
 	const deleted, changed = "2026-03-20T10:00:00Z", "2026-03-15T10:00:00Z"
 	for _, tc := range []struct {
 		name, key string
@@ -91,6 +94,7 @@ func TestCompareToldTheAnswerAboutADeletionFromAnEarlierMerge(t *testing.T) {
 }
 
 func TestCompareAsksAboutADeletionWithoutAMemoryOfIt(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a := rawCopy(t, dir, "a.kdbx", withRecord("2026-03-20T10:00:00Z"))
 	b := rawCopy(t, dir, "b.kdbx", testkit.PlainXML)
@@ -102,6 +106,7 @@ func TestCompareAsksAboutADeletionWithoutAMemoryOfIt(t *testing.T) {
 
 // The human has said these two are one entry, so the report does not offer them as a pair again.
 func TestCompareAsksNothingAboutAPairAnEarlierMergeMadeOne(t *testing.T) {
+	t.Parallel()
 	first := fields("Title", "Пошта", "UserName", "я")
 	second := fields("Title", "Пошта", "UserName", "я", "Notes", "інше")
 	const smaller, larger = "00000000000000000000000000000200", "00000000000000000000000000000201"
@@ -121,6 +126,7 @@ func TestCompareAsksNothingAboutAPairAnEarlierMergeMadeOne(t *testing.T) {
 // The memory has made one entry of two, and an old copy still holds the second one by itself. The
 // report gives the reason, and it does not say the old copy lacks the entry.
 func TestCompareSaysAnOldCopyStillHoldsAnEntryAnEarlierMergeTookIn(t *testing.T) {
+	t.Parallel()
 	const smaller, larger = "00000000000000000000000000000200", "00000000000000000000000000000201"
 	version := func(id, modified, password string) string {
 		return "<UUID>" + id + "</UUID><Times><LastModificationTime>" + modified + "</LastModificationTime></Times>" +
@@ -154,6 +160,7 @@ func TestCompareSaysAnOldCopyStillHoldsAnEntryAnEarlierMergeTookIn(t *testing.T)
 // The human has seen this anomaly and let the version stay on top, so no question comes. The
 // report still says what is unusual about the entry.
 func TestCompareSaysTheClockAnomalyIsDecided(t *testing.T) {
+	t.Parallel()
 	key := "replaced/" + plainEntryID + "/" + v3 + "/" + v2
 	dir := t.TempDir()
 	a := rawCopy(t, dir, "a.kdbx", memoryItem(withVersions(v2, v3), key))

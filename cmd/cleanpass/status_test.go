@@ -75,6 +75,7 @@ func saveAgain(t *testing.T, db testkit.DB) {
 }
 
 func TestStatusCountsAPlainSaveAsTheSame(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a := newCopy(t, dir, "a.kdbx", testkit.RichXML())
 	b := copyOf(t, a, "b.kdbx")
@@ -106,6 +107,7 @@ func wantNoLine(t *testing.T, output, unwanted string) {
 }
 
 func TestStatusNamesTheCopyThatLagsAndTheDirection(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	old := newCopy(t, dir, "old.kdbx", testkit.RichXML())
 	edited := copyOf(t, old, "edited.kdbx")
@@ -148,6 +150,7 @@ func quoted(word string) string {
 }
 
 func TestStatusGivesTheMergeCommandForCopiesThatDiverged(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name     string
 		inA, inB string
@@ -174,6 +177,7 @@ func TestStatusGivesTheMergeCommandForCopiesThatDiverged(t *testing.T) {
 }
 
 func TestStatusMergeCommandKeepsWhatTheCommandLineSaid(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	const (
 		first   = "копія один.kdbx"
@@ -197,6 +201,7 @@ func TestStatusMergeCommandKeepsWhatTheCommandLineSaid(t *testing.T) {
 
 // The merge must not fail on a result that already exists, so the command names a free file.
 func TestStatusMergeCommandNamesAFileThatDoesNotExist(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a := newCopy(t, dir, "a.kdbx", testkit.RichXML())
 	b := copyOf(t, a, "b.kdbx")
@@ -216,6 +221,7 @@ func TestStatusMergeCommandNamesAFileThatDoesNotExist(t *testing.T) {
 
 // After -- every word is a file, so --output must stand in front of it.
 func TestStatusMergeCommandKeepsFilesThatLookLikeOptions(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	const name = "--a.kdbx"
 	a := newCopy(t, dir, name, testkit.RichXML())
@@ -234,6 +240,7 @@ func TestStatusMergeCommandKeepsFilesThatLookLikeOptions(t *testing.T) {
 // A real shell reads the command. Its arguments must reach the program as they came. The
 // test runs them with compare, which names each file in its output.
 func TestStatusMergeCommandSurvivesARealShell(t *testing.T) {
+	t.Parallel()
 	shell, err := exec.LookPath("sh")
 	if err != nil {
 		shell = `C:\Program Files\Git\bin\sh.exe`
@@ -285,6 +292,7 @@ func wantAhead(t *testing.T, got testkit.Result, ahead string, behind ...string)
 // The file differs in each case, and no person has edited anything in it. Each case moves
 // one value of the fixture.
 func TestStatusCountsAsTheSameWhatChangesWithoutAnEdit(t *testing.T) {
+	t.Parallel()
 	const later = "2026-10-01T10:00:00Z"
 	dir := t.TempDir()
 	original := newCopy(t, dir, "original.kdbx", testkit.RichXML())
@@ -334,6 +342,7 @@ func metaItems(items ...string) string {
 }
 
 func TestStatusIgnoresTheServiceDataKeePassXCRenewsOnEverySave(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a := rawCopy(t, dir, "a.kdbx", metaItems("KPXC_RANDOM_SLUG=aaaa", "_LAST_MODIFIED=Mon Jan 1 2026", "own=value"))
 	b := rawCopy(t, dir, "b.kdbx", metaItems("own=value", "_LAST_MODIFIED=Tue Feb 2 2026", "KPXC_RANDOM_SLUG=bbbb"))
@@ -343,6 +352,7 @@ func TestStatusIgnoresTheServiceDataKeePassXCRenewsOnEverySave(t *testing.T) {
 }
 
 func TestStatusIgnoresTheOrderOfCustomData(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a := rawCopy(t, dir, "a.kdbx", metaItems("first=1", "second=2"))
 	b := rawCopy(t, dir, "b.kdbx", metaItems("second=2", "first=1"))
@@ -352,6 +362,7 @@ func TestStatusIgnoresTheOrderOfCustomData(t *testing.T) {
 
 // A merge takes all root groups for one group, so their UUIDs tell nothing.
 func TestStatusTakesAllRootGroupsForOne(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	const rootID = "AAAAAAAAAAAAAAAAAAAAEA=="
 	if !strings.Contains(testkit.PlainXML, rootID) {
@@ -378,6 +389,7 @@ func withGroups(nested bool, moved string) string {
 }
 
 func TestStatusSeesAGroupThatMoved(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	old := rawCopy(t, dir, "old.kdbx", withGroups(false, v1))
 	moved := rawCopy(t, dir, "moved.kdbx", withGroups(true, v2))
@@ -401,6 +413,7 @@ func withEntryInGroup(inGroup bool, moved string) string {
 }
 
 func TestStatusSeesAnEntryThatMovedWithoutANewVersion(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	old := rawCopy(t, dir, "old.kdbx", withEntryInGroup(false, v1))
 	moved := rawCopy(t, dir, "moved.kdbx", withEntryInGroup(true, v2))
@@ -414,6 +427,7 @@ func TestStatusSeesAnEntryThatMovedWithoutANewVersion(t *testing.T) {
 // Status follows the engine and says the copies diverged. That is safe, as nothing gets lost
 // on the way to a merge, but the older copy only lags.
 func TestStatusCallsAnEditOfAnEntryWithCustomDataALag(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	old := newCopy(t, dir, "old.kdbx", testkit.RichXML())
 	edited := copyOf(t, old, "edited.kdbx")
@@ -436,6 +450,7 @@ func richXMLWithBrowserData(t *testing.T, replacement string) string {
 // With the same time and the same content, the smaller version goes into the larger one, so the
 // merge has as many versions as the copy that lacks the data. It still gets something new.
 func TestStatusSeesCustomDataOnlyOneCopyHolds(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	full := newCopy(t, dir, "full.kdbx", testkit.RichXML())
 	bare := newCopy(t, dir, "bare.kdbx", richXMLWithBrowserData(t, ""))
@@ -444,6 +459,7 @@ func TestStatusSeesCustomDataOnlyOneCopyHolds(t *testing.T) {
 }
 
 func TestStatusCallsCustomDataWhereNeitherHoldsTheOtherDiverged(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	first := newCopy(t, dir, "first.kdbx", testkit.RichXML())
 	second := newCopy(t, dir, "second.kdbx", richXMLWithBrowserData(t, strings.Replace(browserData, "example.com", "example.org", 1)))
@@ -457,6 +473,7 @@ func TestStatusCallsCustomDataWhereNeitherHoldsTheOtherDiverged(t *testing.T) {
 // Each run of status has a new key, and the two edits often land in the same second. So one run
 // proves little: the verdict must be the same on every run.
 func TestStatusCallsTwoEditsOfAnEntryWithCustomDataALag(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	once := newCopy(t, dir, "once.kdbx", testkit.RichXML())
 	once.CLI(t, "edit", "--notes", "перша", mailEntry)
@@ -486,6 +503,7 @@ func twoEditsInTheSameSecond(t *testing.T) (first, second string) {
 }
 
 func TestStatusCallsTwoEditsInTheSameSecondALagOnEveryRun(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	firstXML, secondXML := twoEditsInTheSameSecond(t)
 	once := newCopy(t, dir, "once.kdbx", firstXML)
@@ -499,6 +517,7 @@ func TestStatusCallsTwoEditsInTheSameSecondALagOnEveryRun(t *testing.T) {
 // An earlier merge has made two entries one, or has deleted one. Each copy still holds them, and
 // the merge of all holds them no longer under that UUID. That says nothing about their custom data.
 func TestStatusCallsCopiesTheSameWhenTheMemoryTakesAnEntryAway(t *testing.T) {
+	t.Parallel()
 	first := fields("Title", "Пошта", "UserName", "я")
 	second := fields("Title", "Пошта", "UserName", "я", "Notes", "інше")
 	const smaller, larger = "00000000000000000000000000000200", "00000000000000000000000000000201"
@@ -519,6 +538,7 @@ func TestStatusCallsCopiesTheSameWhenTheMemoryTakesAnEntryAway(t *testing.T) {
 
 // A copy whose main version lacks the custom data lags, whichever way the key orders the versions.
 func TestStatusSeesMissingCustomDataOnEveryRun(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	full := newCopy(t, dir, "full.kdbx", testkit.RichXML())
 	bare := newCopy(t, dir, "bare.kdbx", richXMLWithBrowserData(t, ""))
@@ -531,6 +551,7 @@ func TestStatusSeesMissingCustomDataOnEveryRun(t *testing.T) {
 // keepassxc-cli gives an entry a new time on a move to the bin, with the same content. The copies
 // then diverge over the deletion, and not over a conflict in a version.
 func TestStatusAsksForAMergeAfterAMoveToTheBin(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	kept := newCopy(t, dir, "kept.kdbx", testkit.RichXML())
 	moved := copyOf(t, kept, "moved.kdbx")
@@ -540,6 +561,7 @@ func TestStatusAsksForAMergeAfterAMoveToTheBin(t *testing.T) {
 }
 
 func TestStatusSeesNoDifferenceBetweenFileFormats(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	three := testkit.RawFile{Major: 3, Minor: 1, XML: testkit.PlainXML}.Write(t, filepath.Join(dir, "three.kdbx"), testkit.Password)
 	four := rawCopy(t, dir, "four.kdbx", testkit.PlainXML)
@@ -550,6 +572,7 @@ func TestStatusSeesNoDifferenceBetweenFileFormats(t *testing.T) {
 // Each case is a real change, so the changed copy must lead: a filter for the service data
 // must not swallow it.
 func TestStatusSeesAChangeInEveryPartOfTheDatabase(t *testing.T) {
+	t.Parallel()
 	const later = "2026-10-01T10:00:00Z"
 	settings := "2026-02-06T10:00:00Z"
 	for _, tc := range []struct {
@@ -582,6 +605,7 @@ func TestStatusSeesAChangeInEveryPartOfTheDatabase(t *testing.T) {
 
 // These changes come from the real KeePassXC.
 func TestStatusSeesWhatKeePassXCDoes(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		do   func(t *testing.T, db testkit.DB)
@@ -643,6 +667,7 @@ const (
 )
 
 func TestStatusReadsTheVersionsOfAnEntry(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		a, b string
@@ -685,6 +710,7 @@ func TestStatusReadsTheVersionsOfAnEntry(t *testing.T) {
 }
 
 func TestStatusWithMoreThanTwoCopies(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	base := newCopy(t, dir, "base.kdbx", testkit.RichXML())
 
@@ -782,6 +808,7 @@ func withSecondEntry(id string) string {
 // The Merge Engine asks about similar entries even when the copies agree on them. A question
 // alone must not make copies different: only one that the copies bring to each other does.
 func TestStatusCountsSimilarEntriesOnlyWhenTheCopiesDifferInThem(t *testing.T) {
+	t.Parallel()
 	const (
 		firstID  = "AAAAAAAAAAAAAAAAAAACAA=="
 		secondID = "AAAAAAAAAAAAAAAAAAACAQ=="
@@ -805,6 +832,7 @@ func TestStatusCountsSimilarEntriesOnlyWhenTheCopiesDifferInThem(t *testing.T) {
 
 // A record about a deletion is data of the copy, with no entry left to ask about.
 func TestStatusSeesARecordAboutADeletionOnlyOneCopyHolds(t *testing.T) {
+	t.Parallel()
 	start := strings.Index(testkit.PlainXML, "<DeletedObjects>")
 	end := strings.Index(testkit.PlainXML, "</DeletedObjects>") + len("</DeletedObjects>")
 	dir := t.TempDir()
@@ -817,6 +845,7 @@ func TestStatusSeesARecordAboutADeletionOnlyOneCopyHolds(t *testing.T) {
 // A deletion goes through a question of the Merge Engine, whichever copy made it. The exit code
 // is 2, because the merge has a question neither copy has alone.
 func TestStatusSeesADeletion(t *testing.T) {
+	t.Parallel()
 	noBin := strings.Replace(testkit.RichXML(), "<RecycleBinEnabled>True<", "<RecycleBinEnabled>False<", 1)
 	for _, tc := range []struct {
 		name string
@@ -849,6 +878,7 @@ func TestStatusSeesADeletion(t *testing.T) {
 // After an answer the result holds the record about the deletion and the memory of the answer, so
 // a merge with the old copy brings nothing new and asks nothing: the old copy only lags.
 func TestStatusCallsAnOldCopyBehindAResultWithAnAnswerAboutADeletion(t *testing.T) {
+	t.Parallel()
 	const (
 		second = "00000000000000000000000000000101"
 		// The real deletions below have the time of this run, and an answer knows no later one.
@@ -883,6 +913,7 @@ func TestStatusCallsAnOldCopyBehindAResultWithAnAnswerAboutADeletion(t *testing.
 }
 
 func TestStatusExplainsWhatItCannotDoWithCodeThree(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	good := newCopy(t, dir, "good.kdbx", testkit.RichXML())
 	other := newCopy(t, dir, "other.kdbx", testkit.RichXML())
@@ -918,6 +949,7 @@ func TestStatusExplainsWhatItCannotDoWithCodeThree(t *testing.T) {
 }
 
 func TestStatusAsksOnceForFilesWithTheSameBytes(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	old := newCopy(t, dir, "old.kdbx", testkit.RichXML())
 	twin := copyOf(t, old, "twin.kdbx")
@@ -939,6 +971,7 @@ func TestStatusAsksOnceForFilesWithTheSameBytes(t *testing.T) {
 
 // The key file may stand beside either of two files with the same bytes.
 func TestStatusTakesTheKeyFileOfAnyFileWithTheSameBytes(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	key := testkit.NewKeyFile(t, filepath.Join(dir, "a.key"), 1)
 	a := testkit.DB{Path: filepath.Join(dir, "a.kdbx"), Password: testkit.Password, KeyFile: key}.Import(t, testkit.RichXML())
@@ -955,6 +988,7 @@ func TestStatusTakesTheKeyFileOfAnyFileWithTheSameBytes(t *testing.T) {
 }
 
 func TestStatusReadsADatabaseWithAKeyFileAndADifferentPassword(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	key := testkit.NewKeyFile(t, filepath.Join(dir, "a.key"), 1)
 	a := testkit.DB{Path: filepath.Join(dir, "a.kdbx"), Password: "пароль першої", KeyFile: key}.Import(t, testkit.RichXML())
@@ -966,6 +1000,7 @@ func TestStatusReadsADatabaseWithAKeyFileAndADifferentPassword(t *testing.T) {
 }
 
 func TestStatusShowsTheWarningOfTheFieldGuard(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	const name = "with-future.kdbx"
 	xml := strings.Replace(testkit.PlainXML, "</Meta>", "<Future>SECRET-MARKER-value</Future></Meta>", 1)
@@ -990,6 +1025,7 @@ func TestStatusShowsTheWarningOfTheFieldGuard(t *testing.T) {
 }
 
 func TestStatusIsSilentAboutTheFieldGuardOnKeePassXCFiles(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a := newCopy(t, dir, "a.kdbx", testkit.RichXML())
 	b := copyOf(t, a, "b.kdbx")
@@ -1007,6 +1043,7 @@ func TestStatusIsSilentAboutTheFieldGuardOnKeePassXCFiles(t *testing.T) {
 // folder for temporary files. The test waits for the end of the process and of everything
 // that holds its output, so a process left behind would hang it.
 func TestStatusChangesNothingOnDiskAndNeedsNoOtherProgram(t *testing.T) {
+	t.Parallel()
 	inputs := filepath.Join(t.TempDir(), "Мої бази")
 	work, temp := t.TempDir(), t.TempDir()
 	old := newCopy(t, inputs, "стара копія.kdbx", testkit.RichXML())
@@ -1044,6 +1081,7 @@ func TestStatusChangesNothingOnDiskAndNeedsNoOtherProgram(t *testing.T) {
 }
 
 func TestStatusKeepsSecretsOutOfTheOutput(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	password := "SECRET-MARKER-майстер-пароль"
 	a := testkit.DB{Path: filepath.Join(dir, "a.kdbx"), Password: password}.Import(t, testkit.RichXML())
@@ -1060,6 +1098,7 @@ func TestStatusKeepsSecretsOutOfTheOutput(t *testing.T) {
 }
 
 func TestHelpNamesStatusAndItsExitCodes(t *testing.T) {
+	t.Parallel()
 	got := testkit.Run(t, "", "--help")
 	if !strings.Contains(got.Stdout, "cleanpass status") {
 		t.Errorf("no status in the help:\n%s", got.Stdout)
@@ -1070,6 +1109,7 @@ func TestHelpNamesStatusAndItsExitCodes(t *testing.T) {
 }
 
 func TestStatusAnswersWithoutAPasswordForFilesWithTheSameBytes(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a := testkit.DB{Path: filepath.Join(dir, "a.kdbx"), Password: testkit.Password}.Import(t, testkit.RichXML())
 	b := filepath.Join(dir, "b.kdbx")

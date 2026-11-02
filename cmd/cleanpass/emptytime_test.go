@@ -26,12 +26,14 @@ func wantEmptyTimeAdvice(t *testing.T, got testkit.Result, path string) {
 
 // The real case: kdbxweb leaves <MasterKeyChanged/> empty.
 func TestCompareExplainsAnEmptyTimeElement(t *testing.T) {
+	t.Parallel()
 	db := testkit.EmptyTime(t, filepath.Join(t.TempDir(), "kdbxweb.kdbx"))
 	wantEmptyTimeAdvice(t, testkit.Run(t, db.Password+"\n", "compare", db.Path), db.Path)
 }
 
 // The message gives advice, so the advice has to work.
 func TestTheAdviceAboutAnEmptyTimeElementWorks(t *testing.T) {
+	t.Parallel()
 	db := testkit.EmptyTime(t, filepath.Join(t.TempDir(), "kdbxweb.kdbx")).Resave(t)
 
 	got := testkit.Run(t, db.Password+"\n", "compare", db.Path)
@@ -42,6 +44,7 @@ func TestTheAdviceAboutAnEmptyTimeElementWorks(t *testing.T) {
 }
 
 func TestCompareExplainsAnEmptyTimeElementAnywhere(t *testing.T) {
+	t.Parallel()
 	const beforeMetaEnd, inTimes = "</Meta>", "<Times>"
 	for _, format := range []struct {
 		name         string
@@ -81,6 +84,7 @@ func TestCompareExplainsAnEmptyTimeElementAnywhere(t *testing.T) {
 
 // The advice helps only with an empty element. Other damage must not get it.
 func TestCompareDoesNotCallOtherDamageAnEmptyTime(t *testing.T) {
+	t.Parallel()
 	const master = "<MasterKeyChanged>2026-02-03T10:00:00Z</MasterKeyChanged>"
 	for _, tc := range []struct{ name, from, to string }{
 		{"time that is no time", master, "<MasterKeyChanged>не час</MasterKeyChanged>"},

@@ -11,6 +11,7 @@ import (
 )
 
 func TestCompareExplainsAKDFItCannotUse(t *testing.T) {
+	t.Parallel()
 	const (
 		unknown = "незнайомий KDF"
 		version = "версію Argon2, відмінну від 0x13"
@@ -84,6 +85,7 @@ func TestCompareExplainsAKDFItCannotUse(t *testing.T) {
 // No hash protects the header of KDBX 3, and the library runs the KDF at once. Without this
 // check a flipped high byte of the rounds makes the tool hang for years.
 func TestCompareDoesNotHangOnAbsurdRoundsInKDBX3(t *testing.T) {
+	t.Parallel()
 	db := testkit.RawFile{Major: 3, Minor: 1, XML: testkit.PlainXML, Rounds: 1 << 56}.Write(t, filepath.Join(t.TempDir(), "a.kdbx"), testkit.Password)
 
 	got := testkit.Run(t, db.Password+"\n", "compare", db.Path)
@@ -96,6 +98,7 @@ func TestCompareDoesNotHangOnAbsurdRoundsInKDBX3(t *testing.T) {
 }
 
 func TestCompareAcceptsEmptyKAndA(t *testing.T) {
+	t.Parallel()
 	params := testkit.WithParam(testkit.WithParam(testkit.AESKDFParams(), "K", []byte{}), "A", []byte{})
 	db := testkit.RawFile{Major: 4, Minor: 1, XML: testkit.PlainXML, KDF: params}.Write(t, filepath.Join(t.TempDir(), "a.kdbx"), testkit.Password)
 
@@ -109,6 +112,7 @@ func TestCompareAcceptsEmptyKAndA(t *testing.T) {
 // A flipped bit in the KDF parameters must not send the person to KeePassXC to change a
 // KDF that was never there. The hash of the header tells the two cases apart.
 func TestCompareCallsADamagedHeaderDamagedNotAnUnknownKDF(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	good := testkit.DB{Path: filepath.Join(dir, "good.kdbx"), Password: testkit.Password}.Import(t, testkit.RichXML())
 	content, err := os.ReadFile(good.Path)
@@ -141,6 +145,7 @@ func TestCompareCallsADamagedHeaderDamagedNotAnUnknownKDF(t *testing.T) {
 // KDBX 3 has fields with a length of two bytes. A file cut inside its header must get an
 // answer before any question.
 func TestCompareSeesAHeaderCutOffBeforeAskingForAPassword(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	for _, tc := range []struct {
 		name string

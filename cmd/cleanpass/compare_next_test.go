@@ -31,6 +31,7 @@ func divergedCopies(t *testing.T, dir string) (a, b testkit.DB) {
 }
 
 func TestCompareEndsWithTheNextCommand(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	divergedCopies(t, dir)
 
@@ -49,6 +50,7 @@ func TestCompareEndsWithTheNextCommand(t *testing.T) {
 }
 
 func TestCompareNextCommandKeepsWhatTheCommandLineSaid(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	const (
 		first   = "копія один.kdbx"
@@ -71,6 +73,7 @@ func TestCompareNextCommandKeepsWhatTheCommandLineSaid(t *testing.T) {
 }
 
 func TestCompareNextCommandNamesAFileThatDoesNotExist(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a, _ := divergedCopies(t, dir)
 	copyFile(t, a.Path, filepath.Join(dir, "a-merged.kdbx"))
@@ -83,6 +86,7 @@ func TestCompareNextCommandNamesAFileThatDoesNotExist(t *testing.T) {
 }
 
 func TestCompareNextCommandKeepsFilesThatLookLikeOptions(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a := newCopy(t, dir, "--a.kdbx", testkit.RichXML())
 	b := copyOf(t, a, "b.kdbx")
@@ -150,6 +154,7 @@ func keyedCopies(t *testing.T, dir string) (first, second, keyName string) {
 // The arguments must reach the program as they came. Compare names each file in its output, so
 // it stands in for merge here, on any tip of the integration branch.
 func TestCompareNextCommandSurvivesARealShell(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	first, second, keyName := keyedCopies(t, dir)
 
@@ -175,6 +180,7 @@ func skipWithoutMerge(t *testing.T) {
 
 // The real command runs here as a person runs it, from the text of the report.
 func TestCompareNextCommandRunsAsTheRealMerge(t *testing.T) {
+	t.Parallel()
 	skipWithoutMerge(t)
 	dir := t.TempDir()
 	first, second, keyName := keyedCopies(t, dir)
@@ -193,6 +199,7 @@ func TestCompareNextCommandRunsAsTheRealMerge(t *testing.T) {
 }
 
 func TestCompareSaysNoCommandIsNeededForTheSameContent(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a := newCopy(t, dir, "a.kdbx", testkit.RichXML())
 	b := copyOf(t, a, "b.kdbx")
@@ -207,6 +214,7 @@ func TestCompareSaysNoCommandIsNeededForTheSameContent(t *testing.T) {
 }
 
 func TestCompareNamesTheCopyThatLagsAndStillOffersTheCommand(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	old := newCopy(t, dir, "old.kdbx", testkit.RichXML())
 	edited := copyOf(t, old, "edited.kdbx")
@@ -224,6 +232,7 @@ func TestCompareNamesTheCopyThatLagsAndStillOffersTheCommand(t *testing.T) {
 }
 
 func TestCompareOfOneCopyHasNoNextCommand(t *testing.T) {
+	t.Parallel()
 	db := newCopy(t, t.TempDir(), "a.kdbx", testkit.RichXML())
 
 	got := testkit.Run(t, passwords(1), "compare", db.Path)
@@ -235,6 +244,7 @@ func TestCompareOfOneCopyHasNoNextCommand(t *testing.T) {
 
 // Merge stops on such a copy with no way around, so a command would not work when copied.
 func TestCompareOffersNoCommandThatWouldStopOnUnknownData(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	unknown := testkit.UnknownFields(t, filepath.Join(dir, "unknown.kdbx"))
 	other := newCopy(t, dir, "other.kdbx", testkit.RichXML())
@@ -248,6 +258,7 @@ func TestCompareOffersNoCommandThatWouldStopOnUnknownData(t *testing.T) {
 
 // The difference shows in no entry here, so the report must not leave the verdict without a word.
 func TestCompareExplainsADifferenceOutsideTheMainVersions(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a := rawCopy(t, dir, "a.kdbx", withVersions(v3, v1, v2))
 	b := rawCopy(t, dir, "b.kdbx", withVersions(v3, v2))

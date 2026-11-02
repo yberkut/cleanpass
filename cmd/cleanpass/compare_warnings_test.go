@@ -15,6 +15,7 @@ const futureWarning = "часова мітка з майбутнього"
 // Each case moves one time stamp of the fixture past the current time. A wrong clock on any
 // system leaves such a stamp, also when the entry was only read or the file only saved.
 func TestCompareWarnsAboutAStampFromTheFuture(t *testing.T) {
+	t.Parallel()
 	future := time.Now().AddDate(1, 0, 0).UTC().Truncate(time.Second)
 	stamp := future.Format(time.RFC3339)
 	for _, tc := range []struct {
@@ -61,6 +62,7 @@ func TestCompareWarnsAboutAStampFromTheFuture(t *testing.T) {
 // KeePassXC writes the time of a custom data item only for the database, so these files come from
 // the test writer. KPXC_RANDOM_SLUG holds the moment of the last save, also a save with no edit.
 func TestCompareWarnsAboutTheTimeOfCustomData(t *testing.T) {
+	t.Parallel()
 	stamp := time.Now().AddDate(1, 0, 0).UTC().Truncate(time.Second).Format(time.RFC3339)
 	item := func(key string) string {
 		return "<CustomData><Item><Key>" + key + "</Key><Value>aa</Value><LastModificationTime>" + stamp + "</LastModificationTime></Item></CustomData>"
@@ -87,6 +89,7 @@ func TestCompareWarnsAboutTheTimeOfCustomData(t *testing.T) {
 
 // An expiry date lies in the future by design, and copies from the right clock are the usual case.
 func TestCompareRaisesNoFalseAlarmAboutTheFuture(t *testing.T) {
+	t.Parallel()
 	expires := time.Now().AddDate(5, 0, 0).UTC().Format(time.RFC3339)
 	dir := t.TempDir()
 	db := newCopy(t, dir, "a.kdbx", strings.ReplaceAll(testkit.RichXML(), "2030-01-01T10:00:02Z", expires))
@@ -126,6 +129,7 @@ func anotherDatabase(first byte) string {
 }
 
 func TestCompareWarnsAboutCopiesThatLookLikeDifferentDatabases(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	newCopy(t, dir, "home.kdbx", testkit.RichXML())
 	newCopy(t, dir, "work.kdbx", anotherDatabase(0x10))
@@ -144,6 +148,7 @@ func TestCompareWarnsAboutCopiesThatLookLikeDifferentDatabases(t *testing.T) {
 
 // The warning is only as good as its silence on real copies.
 func TestCompareRaisesNoFalseAlarmAboutDifferentDatabases(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	base := newCopy(t, dir, "base.kdbx", testkit.RichXML())
 	edited := copyOf(t, base, "edited.kdbx")
@@ -176,6 +181,7 @@ func TestCompareRaisesNoFalseAlarmAboutDifferentDatabases(t *testing.T) {
 
 // One copy of three is enough: the two others must not hide it.
 func TestCompareNamesTheOddCopyOutOfThree(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	first := newCopy(t, dir, "first.kdbx", testkit.RichXML())
 	copyOf(t, first, "second.kdbx")
@@ -188,6 +194,7 @@ func TestCompareNamesTheOddCopyOutOfThree(t *testing.T) {
 }
 
 func TestCompareAllowUnrelatedCommandGoesBeforeFilesThatLookLikeOptions(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	newCopy(t, dir, "--home.kdbx", testkit.RichXML())
 	newCopy(t, dir, "work.kdbx", anotherDatabase(0x10))
@@ -201,6 +208,7 @@ func TestCompareAllowUnrelatedCommandGoesBeforeFilesThatLookLikeOptions(t *testi
 
 // Copies that hold the same data need no merge, whatever their UUIDs say.
 func TestCompareOffersNoCommandForDifferentDatabasesThatHoldTheSame(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	empty := "<Entry>"
 	start := strings.Index(testkit.PlainXML, empty)
@@ -220,6 +228,7 @@ func TestCompareOffersNoCommandForDifferentDatabasesThatHoldTheSame(t *testing.T
 
 // The option does not exist before the stop that needs it lands. From then on this test runs.
 func TestCompareAllowUnrelatedCommandRunsAsTheRealMerge(t *testing.T) {
+	t.Parallel()
 	skipWithoutMerge(t)
 	dir := t.TempDir()
 	newCopy(t, dir, "home.kdbx", testkit.RichXML())

@@ -12,6 +12,7 @@ import (
 const fieldLossWarning = "Попередження"
 
 func TestCompareNamesFieldsTheToolCannotKeep(t *testing.T) {
+	t.Parallel()
 	db := testkit.UnknownFields(t, filepath.Join(t.TempDir(), "unknown.kdbx"))
 
 	got := testkit.Run(t, db.Password+"\n", "compare", db.Path)
@@ -45,6 +46,7 @@ func wantNoFieldLossWarning(t *testing.T, got testkit.Result) {
 
 // The test writer stands behind many cases below, so the real KeePassXC judges it first.
 func TestKeePassXCOpensTheFilesOfTheTestWriter(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	for name, file := range map[string]testkit.RawFile{
 		"kdbx3.kdbx":             {Major: 3, Minor: 1, XML: testkit.PlainXML},
@@ -63,6 +65,7 @@ func TestKeePassXCOpensTheFilesOfTheTestWriter(t *testing.T) {
 }
 
 func TestCompareRaisesNoFalseAlarmOnKeePassXCFiles(t *testing.T) {
+	t.Parallel()
 	// The values a library is most likely to leave out: zeros, False, null and empty text.
 	sparse := testkit.RichXML()
 	for _, change := range [][2]string{
@@ -103,6 +106,7 @@ func TestCompareRaisesNoFalseAlarmOnKeePassXCFiles(t *testing.T) {
 // KDBX 4 keeps attachments in front of the XML. An attached KeePass export must not be
 // taken for the document, whole or cut off.
 func TestCompareIsNotFooledByAnAttachmentThatLooksLikeTheDocument(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	db := testkit.DB{Path: filepath.Join(dir, "a.kdbx"), Password: testkit.Password}.Import(t, testkit.RichXML())
 	for name, content := range map[string]string{
@@ -123,6 +127,7 @@ func TestCompareIsNotFooledByAnAttachmentThatLooksLikeTheDocument(t *testing.T) 
 
 // Without compression the padding of the cipher follows the XML.
 func TestCompareReadsAFileWithoutCompression(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	base := testkit.DB{Path: filepath.Join(dir, "base.kdbx"), Password: testkit.Password}.Import(t, testkit.RichXML())
 	for name, db := range map[string]testkit.DB{
@@ -154,6 +159,7 @@ var fieldLossCases = []struct {
 }
 
 func TestCompareCatchesLossInEveryPlaceAndFormat(t *testing.T) {
+	t.Parallel()
 	for _, format := range []struct {
 		name         string
 		major, minor uint16
@@ -183,6 +189,7 @@ var attachmentRefs = strings.NewReplacer(
 // On every save the library drops an attachment that no entry refers to. The XML of KDBX 4
 // never shows attachments, so only a look at the references can see this.
 func TestCompareNamesAttachmentsASaveWouldDrop(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	metaBinaries := func(ids ...string) string {
 		var binaries strings.Builder
@@ -243,8 +250,24 @@ func TestCompareNamesAttachmentsASaveWouldDrop(t *testing.T) {
 	}
 }
 
+// The stop has no bypass, so docs/acceptance.md tells what clears it: KeePassXC drops such an
+// attachment on a save. This is real KeePassXC behaviour, and the advice stands on it.
+func TestASaveInKeePassXCClearsTheStopOnAnAttachmentNoEntryRefersTo(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	db := testkit.RawFile{Major: 4, Minor: 1, XML: attachmentRefs, Attachments: [][]byte{[]byte("a"), []byte("b"), []byte("unused")}}.Write(t, filepath.Join(dir, "a.kdbx"), testkit.Password)
+	output := filepath.Join(dir, "new.kdbx")
+
+	wantStopped(t, testkit.Run(t, passwordLines(1), "merge", db.Path, "--output", output), output)
+
+	saveAgain(t, db)
+
+	wantJudged(t, testkit.Run(t, passwordLines(1), "merge", db.Path, "--output", output))
+}
+
 // The guard looks only at elements and attributes with data, by name and count.
 func TestCompareIsSilentAboutWhatHoldsNoData(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ name, from, to string }{
 		{"empty element", "</Meta>", "<Future/></Meta>"},
 		{"element with white space only", "</Meta>", "<Future>\n\t\t</Future></Meta>"},

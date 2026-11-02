@@ -77,6 +77,7 @@ func isFreshest(block string) bool {
 }
 
 func TestComparePassportOfEachCopy(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a := testkit.DB{Path: filepath.Join(dir, "a.kdbx"), Password: testkit.Password}.Import(t, testkit.RichXML())
 	b := testkit.DB{Path: filepath.Join(dir, "b.kdbx"), Password: testkit.Password}.Import(t, testkit.RichXML()).Resave(t)
@@ -120,6 +121,7 @@ func TestComparePassportOfEachCopy(t *testing.T) {
 }
 
 func TestCompareMarksFreshestByTheChangeInsideNotByTheFileDate(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	newerInside := strings.Replace(testkit.RichXML(), testkit.RichLastChange, "2026-05-01T10:00:00Z", 1)
 	a := testkit.DB{Path: filepath.Join(dir, "a.kdbx"), Password: testkit.Password}.Import(t, testkit.RichXML())
@@ -139,6 +141,7 @@ func TestCompareMarksFreshestByTheChangeInsideNotByTheFileDate(t *testing.T) {
 }
 
 func TestCompareMarksAllCopiesWithTheSameNewestChange(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a := testkit.DB{Path: filepath.Join(dir, "a.kdbx"), Password: testkit.Password}.Import(t, testkit.RichXML())
 	b := filepath.Join(dir, "b.kdbx")
@@ -154,6 +157,7 @@ func TestCompareMarksAllCopiesWithTheSameNewestChange(t *testing.T) {
 // Each case moves one time stamp of the fixture and looks at what the report calls the
 // last change inside the database.
 func TestCompareLastChangeInsideTheDatabase(t *testing.T) {
+	t.Parallel()
 	const later = "2026-09-01T10:00:00Z"
 	for _, tc := range []struct {
 		name  string
@@ -192,6 +196,7 @@ func TestCompareLastChangeInsideTheDatabase(t *testing.T) {
 }
 
 func TestCompareOpensEveryCipherAndKDF(t *testing.T) {
+	t.Parallel()
 	base := testkit.DB{Path: filepath.Join(t.TempDir(), "base.kdbx"), Password: testkit.Password}.Import(t, testkit.RichXML())
 	argon := func(name string) string {
 		return name + " (пам'ять, МіБ: 1; ітерацій: 2; потоків: 1)"
@@ -235,6 +240,7 @@ func TestCompareOpensEveryCipherAndKDF(t *testing.T) {
 }
 
 func TestCompareReadsKDBX3(t *testing.T) {
+	t.Parallel()
 	db := testkit.NewKDBX3(t, filepath.Join(t.TempDir(), "old.kdbx"), testkit.Password)
 	db.CLI(t, "ls") // the real KeePassXC reads this file too
 
@@ -252,6 +258,7 @@ func TestCompareReadsKDBX3(t *testing.T) {
 }
 
 func TestCompareChangesNothingOnDiskAndTakesAnyPath(t *testing.T) {
+	t.Parallel()
 	inputs := filepath.Join(t.TempDir(), "Мої бази з пробілами")
 	work := t.TempDir()
 	keyFile := testkit.NewKeyFile(t, filepath.Join(inputs, "мій ключ.key"), 1)
@@ -273,6 +280,7 @@ func TestCompareChangesNothingOnDiskAndTakesAnyPath(t *testing.T) {
 }
 
 func TestDoubleDashMakesTheRestFiles(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	const name = "--key-file.kdbx"
 	testkit.DB{Path: filepath.Join(dir, name), Password: testkit.Password}.Import(t, testkit.RichXML())
@@ -285,6 +293,7 @@ func TestDoubleDashMakesTheRestFiles(t *testing.T) {
 }
 
 func TestCompareKeepsSecretsOutOfTheOutput(t *testing.T) {
+	t.Parallel()
 	password := "SECRET-MARKER-майстер-пароль"
 	db := testkit.DB{Path: filepath.Join(t.TempDir(), "a.kdbx"), Password: password}.Import(t, testkit.RichXML())
 
@@ -300,6 +309,7 @@ func TestCompareKeepsSecretsOutOfTheOutput(t *testing.T) {
 }
 
 func TestCompareExplainsAFileItCannotUse(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	good := testkit.DB{Path: filepath.Join(dir, "good.kdbx"), Password: testkit.Password}.Import(t, testkit.RichXML())
 	content, err := os.ReadFile(good.Path)
@@ -361,6 +371,7 @@ func TestCompareExplainsAFileItCannotUse(t *testing.T) {
 }
 
 func TestCommandLineMistakesAreExplained(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		args []string
@@ -387,6 +398,7 @@ func TestCommandLineMistakesAreExplained(t *testing.T) {
 }
 
 func TestHelpIsInUkrainian(t *testing.T) {
+	t.Parallel()
 	for _, flag := range []string{"--help", "-h", "help"} {
 		got := testkit.Run(t, "", flag)
 		if got.Code != 0 {

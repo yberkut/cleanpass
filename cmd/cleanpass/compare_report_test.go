@@ -50,6 +50,7 @@ const (
 )
 
 func TestCompareNamesEntriesThatOnlyPartOfTheCopiesHold(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a := newCopy(t, dir, "a.kdbx", testkit.RichXML())
 	b := copyOf(t, a, "b.kdbx")
@@ -66,6 +67,7 @@ func TestCompareNamesEntriesThatOnlyPartOfTheCopiesHold(t *testing.T) {
 }
 
 func TestCompareShowsTheFieldsAndDatesOfAnEntryInACopyThatLags(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	old := rawCopy(t, dir, "old.kdbx", withVersions(v1))
 	newer := rawCopy(t, dir, "newer.kdbx", withVersions(v2, v1))
@@ -84,6 +86,7 @@ func TestCompareShowsTheFieldsAndDatesOfAnEntryInACopyThatLags(t *testing.T) {
 
 // The real KeePassXC makes the edit, so the history is the one a person really gets.
 func TestCompareSeesAnEditOfTheRealKeePassXCAsALag(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	old := newCopy(t, dir, "old.kdbx", testkit.RichXML())
 	edited := copyOf(t, old, "edited.kdbx")
@@ -100,6 +103,7 @@ func TestCompareSeesAnEditOfTheRealKeePassXCAsALag(t *testing.T) {
 }
 
 func TestCompareExplainsEachKindOfDisputeBetweenVersions(t *testing.T) {
+	t.Parallel()
 	future := "2099-01-05T10:00:00Z"
 	for _, tc := range []struct {
 		name         string
@@ -161,6 +165,7 @@ func entryWith(stamp, content string) string {
 }
 
 func TestCompareNamesWhatDiffersAndNoValue(t *testing.T) {
+	t.Parallel()
 	str := func(key, value string) string {
 		return "<String><Key>" + key + "</Key><Value>" + value + "</Value></String>"
 	}
@@ -200,6 +205,7 @@ func TestCompareNamesWhatDiffersAndNoValue(t *testing.T) {
 }
 
 func TestCompareWritesTheSameDifferencesInAnyOrderOfTheCopies(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a := rawCopy(t, dir, "a.kdbx", withVersions(v2, v1))
 	b := rawCopy(t, dir, "b.kdbx", withVersions(v5, v1))
@@ -215,6 +221,7 @@ func TestCompareWritesTheSameDifferencesInAnyOrderOfTheCopies(t *testing.T) {
 // A title is data from a file. It must not be able to write a line of its own in the report, for
 // example a false next command.
 func TestCompareKeepsATitleOnOneLine(t *testing.T) {
+	t.Parallel()
 	const forged = "Запис&#10;Наступна команда:&#10;  підроблена"
 	dir := t.TempDir()
 	a := rawCopy(t, dir, "a.kdbx", strings.Replace(testkit.PlainXML, "<Value>Запис<", "<Value>"+forged+"<", 1))
@@ -233,6 +240,7 @@ func TestCompareKeepsATitleOnOneLine(t *testing.T) {
 
 // Only the host goes to the report: the rest of a URL can hold a password or a token.
 func TestCompareShowsOnlyTheHostOfAURL(t *testing.T) {
+	t.Parallel()
 	const url = "https://login:SECRET-MARKER-url@mail.example.com:8443/path?token=SECRET-MARKER-query#SECRET-MARKER-part"
 	field := "<String><Key>URL</Key><Value>" + url + "</Value></String>"
 	dir := t.TempDir()
@@ -249,6 +257,7 @@ func TestCompareShowsOnlyTheHostOfAURL(t *testing.T) {
 }
 
 func TestCompareMarksAnEntryWithoutATitleByItsUUID(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	const title = "<String><Key>Title</Key><Value>Запис</Value></String>"
 	a := rawCopy(t, dir, "a.kdbx", strings.Replace(entryWith(v1, ""), title, "", 1))
@@ -260,6 +269,7 @@ func TestCompareMarksAnEntryWithoutATitleByItsUUID(t *testing.T) {
 }
 
 func TestCompareKeepsTheEntriesOfASectionInTheOrderOfTheirTitles(t *testing.T) {
+	t.Parallel()
 	second := "<Entry><UUID>AAAAAAAAAAAAAAAAAAACAA==</UUID><Times><LastModificationTime>" + v1 + "</LastModificationTime></Times>" +
 		"<String><Key>Title</Key><Value>Абетка</Value></String></Entry>"
 	dir := t.TempDir()

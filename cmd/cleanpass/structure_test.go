@@ -48,6 +48,7 @@ func lines(text string) []string {
 }
 
 func TestBuildWithoutCgoGivesOneFile(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, testkit.BinaryName())
 	build := exec.Command("go", "build", "-o", path, mainPkg)
@@ -68,6 +69,7 @@ func TestBuildWithoutCgoGivesOneFile(t *testing.T) {
 }
 
 func TestDirectDependenciesAreOnlyTheOnesTheSpecNames(t *testing.T) {
+	t.Parallel()
 	allowed := []string{library, "golang.org/x/term", "pgregory.net/rapid"}
 	out := goTool(t, "list", "-m", "-f", "{{if not (or .Main .Indirect)}}{{.Path}}{{end}}", "all")
 	for _, dependency := range lines(out) {
@@ -78,6 +80,7 @@ func TestDirectDependenciesAreOnlyTheOnesTheSpecNames(t *testing.T) {
 }
 
 func TestLibraryIsAPatchedCopyInTheRepository(t *testing.T) {
+	t.Parallel()
 	replaced := strings.TrimSpace(goTool(t, "list", "-m", "-f", "{{.Replace.Path}}", library))
 	if filepath.ToSlash(replaced) != "./"+libraryCopy {
 		t.Errorf("the library comes from %q, want ./%s", replaced, libraryCopy)
@@ -94,6 +97,7 @@ func TestLibraryIsAPatchedCopyInTheRepository(t *testing.T) {
 // A change of the copy must pass the tests of the library itself. Those are in another
 // module, so `go test ./...` from the root would not see them otherwise.
 func TestLibraryCopyPassesItsOwnTests(t *testing.T) {
+	t.Parallel()
 	test := exec.Command("go", "test", "./...")
 	test.Dir = filepath.Join(repoRoot(t), libraryCopy)
 	if out, err := test.CombinedOutput(); err != nil {
@@ -102,6 +106,7 @@ func TestLibraryCopyPassesItsOwnTests(t *testing.T) {
 }
 
 func TestOnlyTheGatewayKnowsTheLibrary(t *testing.T) {
+	t.Parallel()
 	for _, line := range lines(goTool(t, "list", "-f", listTemplate, module+"/...")) {
 		parts := strings.Split(line, "|")
 		pkg, imports := parts[0], strings.Fields(strings.Join(parts[1:], " "))
@@ -117,12 +122,14 @@ func TestOnlyTheGatewayKnowsTheLibrary(t *testing.T) {
 }
 
 func TestToolDoesNotDependOnTheTestKit(t *testing.T) {
+	t.Parallel()
 	if deps := lines(goTool(t, "list", "-deps", mainPkg)); slices.Contains(deps, testkitPkg) {
 		t.Errorf("the tool imports %s", testkitPkg)
 	}
 }
 
 func TestSnapshotDependsOnlyOnTheStandardLibrary(t *testing.T) {
+	t.Parallel()
 	out := goTool(t, "list", "-deps", "-f", "{{if not .Standard}}{{.ImportPath}}{{end}}", snapshotPkg)
 	for _, dep := range lines(out) {
 		if dep != "" && dep != snapshotPkg {
@@ -141,6 +148,7 @@ var (
 // checks the two things a slip would leave behind: Cyrillic letters in any other
 // package, and a sentence in a call that writes to a stream.
 func TestTextForTheHumanLivesInOnePlace(t *testing.T) {
+	t.Parallel()
 	root := repoRoot(t)
 	fset := token.NewFileSet()
 	for _, top := range []string{"cmd", "internal"} {

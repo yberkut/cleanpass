@@ -1,6 +1,7 @@
 package main_test
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"debug/buildinfo"
 	"debug/elf"
@@ -24,6 +25,9 @@ var targets = []struct{ file, goos, goarch string }{
 	{"cleanpass-darwin-amd64", "darwin", "amd64"},
 	{"cleanpass-windows-amd64.exe", "windows", "amd64"},
 }
+
+// The spec wants the script of the manual check in what a person gets.
+const manualCheck = "cleanpass-manual-check.sh"
 
 var output string
 
@@ -64,15 +68,39 @@ func TestChecksumsMatchTheFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	var want strings.Builder
+	files := []string{manualCheck}
 	for _, target := range targets {
-		data, err := os.ReadFile(filepath.Join(output, target.file))
+		files = append(files, target.file)
+	}
+	slices.Sort(files)
+	for _, file := range files {
+		data, err := os.ReadFile(filepath.Join(output, file))
 		if err != nil {
 			t.Fatal(err)
 		}
-		fmt.Fprintf(&want, "%x  %s\n", sha256.Sum256(data), target.file)
+		fmt.Fprintf(&want, "%x  %s\n", sha256.Sum256(data), file)
 	}
 	if string(content) != want.String() {
 		t.Errorf("SHA256SUMS:\n%s\nwant:\n%s", content, want.String())
+	}
+}
+
+// What a person gets is the script of the repository, byte for byte. Git keeps it with LF on every
+// OS, and bash cannot run it with CRLF.
+func TestTheManualCheckComesWithTheFiles(t *testing.T) {
+	got, err := os.ReadFile(filepath.Join(output, manualCheck))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(filepath.Join("..", "..", "scripts", "manual-check.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("%s differs from scripts/manual-check.sh", manualCheck)
+	}
+	if bytes.Contains(got, []byte("\r")) {
+		t.Errorf("%s has CRLF line ends", manualCheck)
 	}
 }
 
@@ -86,7 +114,7 @@ func TestOutputHoldsOnlyTheFilesAndTheirChecksums(t *testing.T) {
 	for _, entry := range entries {
 		got = append(got, entry.Name())
 	}
-	want := []string{"SHA256SUMS"}
+	want := []string{"SHA256SUMS", manualCheck}
 	for _, target := range targets {
 		want = append(want, target.file)
 	}

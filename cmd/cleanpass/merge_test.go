@@ -145,6 +145,7 @@ func keptAllLines(t *testing.T, result testkit.DB, copies ...testkit.DB) {
 // result keeps the old version with its custom data, asks nothing, and the real KeePassXC sees
 // all of both copies in it.
 func TestMergeTakesAnEditOfAnEntryWithCustomDataAsALag(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	old := testkit.DB{Path: filepath.Join(dir, "old.kdbx"), Password: testkit.Password}.Import(t, mergeableXML())
 	edited := copyOf(t, old, "edited.kdbx")
@@ -209,6 +210,7 @@ func keptAllLinesButTheResavedGroup(t *testing.T, result testkit.DB, copies ...t
 }
 
 func TestMergeGivesAFileKeePassXCReadsWithoutLoss(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a, b := divergedPair(t, dir)
 	beforeA, beforeB := digestOf(t, a.Path), digestOf(t, b.Path)
@@ -232,6 +234,7 @@ func TestMergeGivesAFileKeePassXCReadsWithoutLoss(t *testing.T) {
 func passwordLines(n int) string { return strings.Repeat(testkit.Password+"\n", n) }
 
 func TestMergeKeepsEveryKindOfData(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a, b := divergedPair(t, dir)
 	result := testkit.DB{Path: filepath.Join(dir, "new.kdbx"), Password: testkit.Password}
@@ -277,6 +280,7 @@ func TestMergeKeepsEveryKindOfData(t *testing.T) {
 
 // Both copies hold the same bytes under two names, and each stores them on its own.
 func TestMergeStoresTheSameAttachmentOnce(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a, b := divergedPair(t, dir)
 	result := testkit.DB{Path: filepath.Join(dir, "new.kdbx"), Password: testkit.Password}
@@ -289,6 +293,7 @@ func TestMergeStoresTheSameAttachmentOnce(t *testing.T) {
 }
 
 func TestMergeKeepsAnAttachmentThatLooksLikeBase64(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a, b := divergedPair(t, dir)
 	const content = "abcdQUJD"
@@ -303,6 +308,7 @@ func TestMergeKeepsAnAttachmentThatLooksLikeBase64(t *testing.T) {
 }
 
 func TestMergeMakesNewRandomValues(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a, b := divergedPair(t, dir)
 	result := testkit.DB{Path: filepath.Join(dir, "new.kdbx"), Password: testkit.Password}
@@ -324,6 +330,7 @@ func TestMergeMakesNewRandomValues(t *testing.T) {
 }
 
 func TestMergeKeepsEveryVersionOfAllCopiesAboveTheHistoryLimit(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	versions := func(prefix string, first int) string {
 		var history strings.Builder
@@ -362,6 +369,7 @@ func twoDigits(n int) string {
 }
 
 func TestMergeWithThreeCopiesAndPathsWithSpacesAndCyrillic(t *testing.T) {
+	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "папка з пробілом")
 	a, b := divergedPair(t, dir+" а")
 	c := testkit.DB{Path: filepath.Join(dir, "третя копія.kdbx"), Password: testkit.Password}.Import(t, mergeableXML())
@@ -374,6 +382,7 @@ func TestMergeWithThreeCopiesAndPathsWithSpacesAndCyrillic(t *testing.T) {
 }
 
 func TestMergeWithASingleCopyMakesTheSameDatabase(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a := testkit.DB{Path: filepath.Join(dir, "a.kdbx"), Password: testkit.Password}.Import(t, mergeableXML())
 	result := testkit.DB{Path: filepath.Join(dir, "new.kdbx"), Password: testkit.Password}
@@ -389,6 +398,7 @@ func TestMergeWithASingleCopyMakesTheSameDatabase(t *testing.T) {
 }
 
 func TestMergeTakesTheOutputInEveryPlace(t *testing.T) {
+	t.Parallel()
 	for name, args := range map[string][]string{
 		"at the end":      {"a.kdbx", "b.kdbx", "--output", "new.kdbx"},
 		"at the start":    {"--output", "new.kdbx", "a.kdbx", "b.kdbx"},
@@ -411,6 +421,7 @@ func TestMergeTakesTheOutputInEveryPlace(t *testing.T) {
 // The word after --output is its value, and after -- every word is a file. Both can look like
 // an option: status offers such a command for a copy with such a name.
 func TestMergeTakesNamesThatLookLikeOptions(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a := testkit.DB{Path: filepath.Join(dir, "--a.kdbx"), Password: testkit.Password}.Import(t, mergeableXML())
 	b := testkit.DB{Path: filepath.Join(dir, "b.kdbx"), Password: testkit.Password}.Import(t, mergeableXML())
@@ -448,6 +459,7 @@ func posixShell(t *testing.T) string {
 // status prints a command for the person to copy. A real shell runs that very line here, and
 // it must make the result it promises.
 func TestMergeRunsTheLineThatStatusPrints(t *testing.T) {
+	t.Parallel()
 	const keyName = "мій ключ.key"
 	for name, tc := range map[string]struct {
 		first, second, result string
@@ -527,6 +539,7 @@ func TestMergeRunsTheLineThatStatusPrints(t *testing.T) {
 // gives it no LocationChanged. The file must then have no such element, and the real
 // KeePassXC must still read the version.
 func TestMergeKeepsAVersionWithoutALocationTime(t *testing.T) {
+	t.Parallel()
 	const onlyInTheBin = secretMarker + "-лише-в-кошику"
 	dir := t.TempDir()
 	withOlderVersion := replaced(t, mergeableXML(),
@@ -553,6 +566,7 @@ func TestMergeKeepsAVersionWithoutALocationTime(t *testing.T) {
 }
 
 func TestMergeRefusesBadCommandLines(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a, _ := divergedPair(t, dir)
 	for name, args := range map[string][]string{
@@ -583,6 +597,7 @@ func TestMergeRefusesBadCommandLines(t *testing.T) {
 }
 
 func TestMergeRefusesToOverwriteAndAsksNoPassword(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a, b := divergedPair(t, dir)
 	existing := filepath.Join(dir, "existing.kdbx")
@@ -619,6 +634,7 @@ func TestMergeRefusesToOverwriteAndAsksNoPassword(t *testing.T) {
 }
 
 func TestMergeRefusesATargetInADirectoryThatIsNotThere(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a, _ := divergedPair(t, dir)
 	output := filepath.Join(dir, "no-such-directory", "new.kdbx")
@@ -630,6 +646,7 @@ func TestMergeRefusesATargetInADirectoryThatIsNotThere(t *testing.T) {
 }
 
 func TestMergeStopsAtAFieldItCannotKeep(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	good := testkit.DB{Path: filepath.Join(dir, "good.kdbx"), Password: testkit.Password}.Import(t, mergeableXML())
 	unknown := testkit.UnknownFields(t, filepath.Join(dir, "unknown.kdbx"))
@@ -662,6 +679,7 @@ func TestMergeStopsAtAFieldItCannotKeep(t *testing.T) {
 
 // The header of a file can also hold data. A result gets a header of its own.
 func TestMergeStopsAtHeaderDataItCannotKeep(t *testing.T) {
+	t.Parallel()
 	const comment = "keep-me-too"
 	custom := []testkit.KDFParam{{Name: "plugin", Value: []byte("keep-me-too")}}
 	for name, tc := range map[string]struct {
@@ -703,6 +721,7 @@ func TestMergeStopsAtHeaderDataItCannotKeep(t *testing.T) {
 // it appears, it must hold the data. Ticket #8 turns the stops into results, so the test keeps
 // its worth before and after it.
 func TestMergeNeverPublishesAResultThatLost(t *testing.T) {
+	t.Parallel()
 	olderIcon := `<CustomIcons><Icon><UUID>AAAAAAAAAAAAAAAAAAAJAg==</UUID><Data>iVBORw0KGgo=</Data><Name>old icon</Name><LastModificationTime>2026-02-04T10:00:00Z</LastModificationTime></Icon></CustomIcons>`
 	for name, tc := range map[string]struct {
 		older, newer string
@@ -748,6 +767,7 @@ func TestMergeNeverPublishesAResultThatLost(t *testing.T) {
 // What the merge lets leave its place without an answer of this run must not stop the Loss Audit:
 // groups on one path, and what the memory of an earlier merge has decided.
 func TestMergePublishesWhatTheEngineMayMove(t *testing.T) {
+	t.Parallel()
 	const (
 		// The entry Друге in the fixture with the time of its one version, and the entry Пошта.
 		second     = "00000000000000000000000000000101"
@@ -827,6 +847,7 @@ func TestMergePublishesWhatTheEngineMayMove(t *testing.T) {
 }
 
 func TestTheNewestCopyGivesTheKeysTheCipherAndTheKDF(t *testing.T) {
+	t.Parallel()
 	const passwordOld, passwordNew = "пароль старої копії", "пароль нової копії"
 	root := t.TempDir()
 	key := testkit.NewKeyFile(t, filepath.Join(root, "key.bin"), 3)
@@ -867,6 +888,7 @@ func TestTheNewestCopyGivesTheKeysTheCipherAndTheKDF(t *testing.T) {
 }
 
 func TestACopyWithoutAPasswordGivesAResultWithoutAPassword(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	key := testkit.NewKeyFile(t, filepath.Join(dir, "key.bin"), 5)
 	a := testkit.DB{Path: filepath.Join(dir, "a.kdbx"), KeyFile: key}.Import(t, mergeableXML())
@@ -879,6 +901,7 @@ func TestACopyWithoutAPasswordGivesAResultWithoutAPassword(t *testing.T) {
 
 // The keys of the result are the ones that fit in the end, not the first ones typed.
 func TestTheResultGetsTheKeysThatFit(t *testing.T) {
+	t.Parallel()
 	const password = "спільний пароль"
 	for name, stdin := range map[string]string{
 		"typed again after a wrong one": "неправильний\n" + password + "\n\n\n" + password + "\n",
@@ -900,6 +923,7 @@ func TestTheResultGetsTheKeysThatFit(t *testing.T) {
 // Enter tries the password typed before, then no password. The second one fits here, so the
 // result must have no password either.
 func TestTheResultHasNoPasswordWhenEnterFoundThatTheNewestCopyHasNone(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	key := testkit.NewKeyFile(t, filepath.Join(dir, "key.bin"), 9)
 	older := testkit.DB{Path: filepath.Join(dir, "older.kdbx"), Password: testkit.Password}.Import(t, mergeableXML())
@@ -914,6 +938,7 @@ func TestTheResultHasNoPasswordWhenEnterFoundThatTheNewestCopyHasNone(t *testing
 }
 
 func TestAKDBX3CopyIsUpgraded(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	source := testkit.NewKDBX3(t, filepath.Join(dir, "k3.kdbx"), testkit.Password)
 	result := testkit.DB{Path: filepath.Join(dir, "new.kdbx"), Password: testkit.Password}
@@ -939,6 +964,7 @@ func TestAKDBX3CopyIsUpgraded(t *testing.T) {
 
 // A copy of KDBX 3 may hold parts of a second, and KDBX 4 cannot.
 func TestATimeWithPartsOfASecondDoesNotStopTheMerge(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	xml := strings.ReplaceAll(testkit.PlainXML, "2026-03-15T10:00:00Z", "2026-03-15T10:00:00.5Z")
 	source := testkit.RawFile{Major: 3, Minor: 1, XML: xml}.Write(t, filepath.Join(dir, "a.kdbx"), testkit.Password)
@@ -954,6 +980,7 @@ func TestATimeWithPartsOfASecondDoesNotStopTheMerge(t *testing.T) {
 // The person takes their time at a prompt, and a copy that was already read can change in that
 // time. The merge must not go on with what it read.
 func TestMergeStopsWhenACopyChangesWhileThePersonTypes(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a, b := divergedPair(t, dir)
 	output := filepath.Join(dir, "new.kdbx")
@@ -992,6 +1019,7 @@ var allCrashPoints = []struct {
 }
 
 func TestACrashAtAnyPointLeavesTheInputsAndNoHalfOfAResult(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	a, b := divergedPair(t, root)
 	beforeA, beforeB := digestOf(t, a.Path), digestOf(t, b.Path)
@@ -1041,6 +1069,7 @@ func TestACrashAtAnyPointLeavesTheInputsAndNoHalfOfAResult(t *testing.T) {
 }
 
 func TestAMergeWorksAfterACrashLeftATemporaryFile(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a, b := divergedPair(t, dir)
 	result := testkit.DB{Path: filepath.Join(dir, "new.kdbx"), Password: testkit.Password}
@@ -1067,6 +1096,7 @@ func TestAMergeWorksAfterACrashLeftATemporaryFile(t *testing.T) {
 // Without the special variable a run has no crash points. All tests above that expect a result
 // prove the rest: no other variable and no argument gets to them.
 func TestCrashPointsNeedTheirOwnVariable(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a, b := divergedPair(t, dir)
 	result := filepath.Join(dir, "new.kdbx")
@@ -1099,6 +1129,7 @@ func wantNoSecretInFiles(t *testing.T, dir string) {
 }
 
 func TestSecretsStayOutOfTheOutputAndTheDirectoryOfTheResult(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	a, b := divergedPair(t, root)
 	dir := t.TempDir()

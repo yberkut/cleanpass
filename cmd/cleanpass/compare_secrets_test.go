@@ -50,6 +50,7 @@ func wantNoSecret(t *testing.T, got testkit.Result) {
 
 // One real run shows every section of the report, on copies that really hold the markers.
 func TestCompareKeepsEverySecretOutOfTheWholeReport(t *testing.T) {
+	t.Parallel()
 	master := secretMarker + "-майстер-пароль"
 	dir := t.TempDir()
 	base := testkit.DB{Path: filepath.Join(dir, "base.kdbx"), Password: master}.Import(t, markedXML(t, secretMarker+"-друге"))
@@ -93,6 +94,7 @@ func TestCompareKeepsEverySecretOutOfTheWholeReport(t *testing.T) {
 
 // KeePassXC marks these fields as protected, so the Label of the entry must leave them empty.
 func TestCompareShowsNoProtectedTitleOrLogin(t *testing.T) {
+	t.Parallel()
 	xml := testkit.RichXML()
 	for _, change := range [][2]string{
 		{"<Value>Друге</Value>", `<Value ProtectInMemory="True">` + secretMarker + `-назва</Value>`},
@@ -117,6 +119,7 @@ func TestCompareShowsNoProtectedTitleOrLogin(t *testing.T) {
 
 // Bytes of an attachment and its file name stay out too, and so does the content of a key file.
 func TestCompareKeepsAttachmentsAndKeyFilesOutOfTheReport(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	key := testkit.NewKeyFile(t, filepath.Join(dir, "a.key"), 1)
 	content, err := os.ReadFile(key)
