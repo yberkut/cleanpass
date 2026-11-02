@@ -90,6 +90,10 @@ func Write(out io.Writer, snap *snapshot.Snapshot, format snapshot.Format, creds
 	if err := freshen(db); err != nil {
 		return err
 	}
+	// The new salt is a new challenge, so the response of the source file is of no use here.
+	if err := addResponse(libCreds, creds.YubiKey, db.Header.FileHeaders.KdfParameters.Salt[:]); err != nil {
+		return err
+	}
 	// The values are in clear text here. Encode first unlocks whatever it finds with the
 	// current stream key, then locks again. So it needs values already locked with that key:
 	// this Lock must come after the key is new, and it must not be left out.

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yberkut/cleanpass/internal/judge"
+	"github.com/yberkut/cleanpass/internal/safewriter"
 	"github.com/yberkut/cleanpass/internal/testkit"
 )
 
@@ -566,34 +568,34 @@ func TestTheKeysOfTheResultGoByTheAnswer(t *testing.T) {
 			"що й копію", false,
 		},
 		"a new password": {
-			"3\n" + passwordNew + "\n" + passwordNew + "\n\n",
+			"3\n" + passwordNew + "\n" + passwordNew + "\n\n\n",
 			func(path string) testkit.DB { return testkit.DB{Path: path, Password: passwordNew} },
-			"нові", false,
+			"нові ключі", false,
 		},
 		"a new password after two that differ": {
-			"3\nпершого разу\nдругого разу\n" + passwordNew + "\n" + passwordNew + "\n\n",
+			"3\nпершого разу\nдругого разу\n" + passwordNew + "\n" + passwordNew + "\n\n\n",
 			func(path string) testkit.DB { return testkit.DB{Path: path, Password: passwordNew} },
 			"Паролі різні", false,
 		},
 		"a new key file and no password": {
-			"3\n\n" + key + "\n",
+			"3\n\n" + key + "\n\n",
 			func(path string) testkit.DB { return testkit.DB{Path: path, KeyFile: key} },
-			"нові", false,
+			"нові ключі", false,
 		},
 		"a new password and a new key file": {
-			"3\n" + passwordNew + "\n" + passwordNew + "\n" + key + "\n",
+			"3\n" + passwordNew + "\n" + passwordNew + "\n" + key + "\n\n",
 			func(path string) testkit.DB { return testkit.DB{Path: path, Password: passwordNew, KeyFile: key} },
-			"нові", false,
+			"нові ключі", false,
 		},
 		"a key file that is not there, and then a good one": {
-			"3\n\nнемає такого файла.key\n" + key + "\n",
+			"3\n\nнемає такого файла.key\n" + key + "\n\n",
 			func(path string) testkit.DB { return testkit.DB{Path: path, KeyFile: key} },
 			"Не вдалося прочитати файл-ключ", false,
 		},
 		"neither a password nor a key file gets a second try": {
-			"3\n\n\n" + passwordNew + "\n" + passwordNew + "\n\n",
+			"3\n\n\n\n" + passwordNew + "\n" + passwordNew + "\n\n\n",
 			func(path string) testkit.DB { return testkit.DB{Path: path, Password: passwordNew} },
-			"Новому файлу потрібен пароль або файл-ключ", false,
+			"Новому файлу потрібен пароль, файл-ключ або YubiKey", false,
 		},
 		"a wrong answer": {
 			"9\n1\n",
@@ -609,6 +611,16 @@ func TestTheKeysOfTheResultGoByTheAnswer(t *testing.T) {
 			"3\n" + passwordNew + "\n" + passwordNew + "\n",
 			nil,
 			"Результат не створено", true,
+		},
+		"the input ends before the new slot": {
+			"3\n" + passwordNew + "\n" + passwordNew + "\n\n",
+			nil,
+			"Результат не створено", true,
+		},
+		"a slot that does not exist, and then none": {
+			"3\n" + passwordNew + "\n" + passwordNew + "\n\n7\n\n",
+			func(path string) testkit.DB { return testkit.DB{Path: path, Password: passwordNew} },
+			"Слот YubiKey — це 1 або 2", false,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -645,7 +657,7 @@ func TestTheCipherAndTheKDFGoByTheAnswerAboutTheKeys(t *testing.T) {
 		opens   string
 	}{
 		"the older copy": {"1\n", "ChaCha20", "Argon2d", testkit.Password},
-		"new keys":       {"3\nінший\nінший\n\n", "Twofish", "Argon2id", "інший"},
+		"new keys":       {"3\nінший\nінший\n\n\n", "Twofish", "Argon2id", "інший"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -765,7 +777,7 @@ func TestEveryKindOfQuestionInOneRunOfThreeCopies(t *testing.T) {
 
 	// The first conflict by the rule, the second with the older version, delete, merge the pair,
 	// and then new keys.
-	got := merged(t, "1\n2\n2\n2\n4\n"+passwordNew+"\n"+passwordNew+"\n\n", result, a, b, c)
+	got := merged(t, "1\n2\n2\n2\n4\n"+passwordNew+"\n"+passwordNew+"\n\n\n", result, a, b, c)
 
 	wantNotInOutput(t, got.Stdout+got.Stderr, secretMarker, passwordA, passwordB, passwordC, passwordNew)
 	wantNoSecretInFiles(t, dir)
@@ -823,6 +835,56 @@ func TestAnAnswerFitsWhicheverCopyComesFirst(t *testing.T) {
 			t.Errorf("%s: the main version holds %q, want %q", result.Path, notes, nearOne)
 		}
 	}
+}
+
+// New keys can hold a key in the slot of a YubiKey, with or without a password. No real key ran this.
+func TestNewKeysCanHoldAYubiKey(t *testing.T) {
+	t.Parallel()
+	const passwordNew = "гасло результату"
+	for name, tc := range map[string]struct {
+		answers, opensWith string
+	}{
+		"with a password": {"2\n" + passwordNew + "\n" + passwordNew + "\n\n2\n", passwordNew + "\n"},
+		"alone":           {"2\n\n\n2\n", "\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			db := rawCopy(t, dir, "a.kdbx", testkit.PlainXML)
+			fake := testkit.NewFakeYkman(t, testkit.YkmanPlan{})
+			result := filepath.Join(dir, "new.kdbx")
+
+			got := testkit.RunWith(t, testkit.Options{Stdin: db.Password + "\n" + tc.answers, Env: noJudge(fake)}, "merge", db.Path, "--output", result)
+
+			wantMerged(t, got)
+			wantInOutput(t, got.Stdout, "Новий файл відкривають нові ключі", "Новий файл потребує і YubiKey, слот 2.")
+			wantInOutput(t, got.Stderr, "Торкніться YubiKey")
+			wantChallenges(t, fake, "2", challengeOf(t, result))
+
+			opened := testkit.RunWith(t, testkit.Options{Stdin: tc.opensWith, Env: fake.Env()}, "compare", result, "--yubikey", "2")
+			wantCode(t, opened, 0)
+			blocked := testkit.RunWith(t, testkit.Options{Stdin: tc.opensWith, Env: fake.Env()}, "compare", result)
+			wantCode(t, blocked, 3)
+		})
+	}
+}
+
+// The tool says at once when the program for a key is not there, and the person can go without it.
+func TestANewSlotWithoutTheProgramOfTheKeyAsksAgain(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	db := rawCopy(t, dir, "a.kdbx", testkit.PlainXML)
+	result := testkit.DB{Path: filepath.Join(dir, "new.kdbx"), Password: "гасло результату"}
+	opts := testkit.Options{
+		Stdin: db.Password + "\n2\n" + result.Password + "\n" + result.Password + "\n\n2\n\n",
+		Env:   []string{"PATH=" + t.TempDir(), safewriter.FaultVariable + "=" + judge.FaultNoInstallPlaces},
+	}
+
+	got := testkit.RunWith(t, opts, "merge", db.Path, "--output", result.Path)
+
+	wantMerged(t, got)
+	wantInOutput(t, got.Stderr, "ykman")
+	wantNotInOutput(t, got.Stdout, "слот")
 }
 
 func TestAResultStaysUnderTheOutputNameOnly(t *testing.T) {

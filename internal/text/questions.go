@@ -182,10 +182,12 @@ const (
 	NewKeysDifferent = "Паролі різні. Спробуйте ще раз."
 	// NewKeysKeyFilePrompt asks for the key file of the result.
 	NewKeysKeyFilePrompt = "Новий файл-ключ (Enter — без файла-ключа): "
+	// NewKeysSlotPrompt asks for the slot of a YubiKey for the result.
+	NewKeysSlotPrompt = "Новий слот YubiKey, 1 або 2 (Enter — без YubiKey): "
 	// NewKeysEmpty refuses a result that nothing protects.
-	NewKeysEmpty = "Новому файлу потрібен пароль або файл-ключ. Спробуйте ще раз."
+	NewKeysEmpty = "Новому файлу потрібен пароль, файл-ключ або YubiKey. Спробуйте ще раз."
 	// NewKeysNotGiven stops a merge when the person asked for new keys and input ended.
-	NewKeysNotGiven = "Нові пароль і файл-ключ не введено: ввід закінчився. Результат не створено, оригінали не змінено."
+	NewKeysNotGiven = "Нові ключі не введено до кінця: ввід закінчився. Результат не створено, оригінали не змінено."
 )
 
 // KeysFromCopy is the answer that takes the keys of a copy.
@@ -199,5 +201,5 @@ func KeysFromCopy(number int, path string, newest bool) string {
 
 // KeysNew is the answer that sets new keys. The cipher and the KDF come from the newest copy.
 func KeysNew(number int) string {
-	return numbered(number, "задати нові пароль і файл-ключ; шифр і KDF будуть від найновішої копії")
+	return numbered(number, "задати нові пароль, файл-ключ і YubiKey; шифр і KDF будуть від найновішої копії")
 }

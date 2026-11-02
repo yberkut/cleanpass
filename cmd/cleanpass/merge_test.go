@@ -850,7 +850,7 @@ func TestACopyWithoutAPasswordGivesAResultWithoutAPassword(t *testing.T) {
 func TestTheResultGetsTheKeysThatFit(t *testing.T) {
 	const password = "спільний пароль"
 	for name, stdin := range map[string]string{
-		"typed again after a wrong one": "неправильний\n" + password + "\n\n" + password + "\n",
+		"typed again after a wrong one": "неправильний\n" + password + "\n\n\n" + password + "\n",
 		"Enter repeats the typed one":   password + "\n\n",
 	} {
 		t.Run(name, func(t *testing.T) {

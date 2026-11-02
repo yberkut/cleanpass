@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yberkut/cleanpass/internal/challenge"
 	"github.com/yberkut/cleanpass/internal/gateway"
 	// The name of the package is taken in this package: status has a function named judge.
 	keepassxc "github.com/yberkut/cleanpass/internal/judge"
@@ -125,7 +126,7 @@ func writeMergeReport(env Env, opened openedCopies, facts merge.Facts, now time.
 
 // writeMergeEnd says what came of the merge. The summary comes last, so a person finds it.
 func writeMergeEnd(env Env, output string, keys resultKeys, answers session.Answers, result *merge.Result, input merge.Input) error {
-	lines := []string{"", text.MergeDone(output), keys.description}
+	lines := append([]string{"", text.MergeDone(output)}, keys.description...)
 	if answers.Unanswered > 0 {
 		lines = append(lines, text.MergeUnanswered(answers.Unanswered))
 	}
@@ -168,7 +169,7 @@ func cutMergeOptions(args []string) (options mergeOptions, rest []string, proble
 		switch {
 		case arg == "--":
 			return options, append(rest, args[i:]...), ""
-		case arg == "-k" || arg == "--key-file":
+		case takesAValue(arg):
 			rest = append(rest, arg)
 			if i+1 < len(args) {
 				i++
@@ -263,14 +264,22 @@ type resultKeys struct {
 	format snapshot.Format
 	keys   gateway.Credentials
 	// description says for the person what opens the result.
-	description string
+	description []string
 }
 
 func (o openedCopies) keysFor(choice session.KeysChoice) resultKeys {
 	from := &o[choice.FromCopy]
-	result := resultKeys{format: gateway.OutputFormat(from.snap.Format), keys: from.keys, description: text.MergeKeysFrom(from.path)}
-	if choice.IsNew {
-		result.keys, result.description = choice.New, text.MergeKeysNew
+	result := resultKeys{format: gateway.OutputFormat(from.snap.Format), keys: from.keys}
+	switch key := choice.New.YubiKey; {
+	case !choice.IsNew:
+		result.description = []string{text.MergeKeysFrom(from.path)}
+		if key := from.keys.YubiKey; key != nil {
+			result.description = append(result.description, text.MergeYubiKeyKept(key.Slot()))
+		}
+	case key != nil:
+		result.keys, result.description = choice.New, []string{text.MergeKeysNew, text.MergeYubiKeyNew(key.Slot())}
+	default:
+		result.keys, result.description = choice.New, []string{text.MergeKeysNew}
 	}
 	return result
 }
@@ -350,7 +359,15 @@ func outsideCheck(env Env, expected *snapshot.Snapshot, keys gateway.Credentials
 		if _, err := fmt.Fprintln(env.Stderr, text.JudgeWorking); err != nil {
 			return err
 		}
+		if keys.YubiKey != nil {
+			if _, err := fmt.Fprintln(env.Stderr, text.JudgeTouches(keepassxc.Touches(expected))); err != nil {
+				return err
+			}
+		}
 		if err := program.Check(temp, expected, keys); err != nil {
+			if keys.YubiKey != nil && errors.Is(err, keepassxc.ErrCannotRead) {
+				_, _ = fmt.Fprintln(env.Stderr, text.JudgeMaybeNoTouch)
+			}
 			return err
 		}
 		_, err = fmt.Fprintln(env.Stdout, text.JudgeAgrees)
@@ -389,6 +406,8 @@ func describeWriteError(output string, err error) string {
 		return text.JudgeDiffers(judged.Place)
 	case errors.Is(err, keepassxc.ErrCannotRead):
 		return text.JudgeCannotRead
+	case errors.Is(err, challenge.ErrNoResponse):
+		return text.MergeYubiKeyNoResponse
 	case errors.Is(err, safewriter.ErrTargetExists):
 		return text.MergeTargetExists(output)
 	case errors.Is(err, safewriter.ErrTargetIsInput):

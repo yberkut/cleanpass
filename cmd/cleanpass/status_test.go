@@ -935,7 +935,7 @@ func TestStatusKeepsSecretsOutOfTheOutput(t *testing.T) {
 	a.CLI(t, "edit", "--notes", "зміна в a", thirdEntry)
 	b.CLI(t, "edit", "--notes", "зміна в b", workEntry)
 
-	got := testkit.Run(t, "неправильний-SECRET-MARKER\n"+password+"\n\n\n", "status", a.Path, b.Path)
+	got := testkit.Run(t, "неправильний-SECRET-MARKER\n"+password+"\n\n\n\n", "status", a.Path, b.Path)
 
 	wantCode(t, got, 2)
 	if strings.Contains(got.Stdout+got.Stderr, "SECRET-MARKER") {

@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/yberkut/cleanpass/internal/challenge"
 	"github.com/yberkut/cleanpass/internal/gateway"
 	"github.com/yberkut/cleanpass/internal/interrupt"
 	"github.com/yberkut/cleanpass/internal/snapshot"
@@ -33,6 +34,8 @@ const settleAfterEnd = 300 * time.Millisecond
 type Copy struct {
 	Path    string
 	KeyFile string
+	// Slot is the slot of a YubiKey, or 0 when the copy has none.
+	Slot int
 }
 
 // Session reads from stdin and writes questions to prompts.
@@ -43,11 +46,15 @@ type Session struct {
 	typed []byte
 	// finished says no more answers come: the input ended, or the person said to stop asking.
 	finished bool
+	// responder keeps the responses of a key for the whole run, so that a retry needs no new touch.
+	responder *challenge.Responder
 }
 
 // New starts a dialog. Questions go to prompts, so that stdout holds only the result.
 func New(stdin *os.File, prompts io.Writer) *Session {
-	return &Session{stdin: stdin, prompts: prompts}
+	s := &Session{stdin: stdin, prompts: prompts}
+	s.responder = challenge.New(func(slot int) { s.say(text.TouchYubiKey(slot)) })
+	return s
 }
 
 // Open asks for the keys of a copy until they fit, and gives its Snapshot.
@@ -58,38 +65,58 @@ func (s *Session) Open(c Copy) (*snapshot.Snapshot, error) {
 
 // OpenWithKeys is Open that also gives the keys that fit, so that a result can have them.
 //
-// The first try asks only for the password. A retry also asks for the key file, so
-// that a database with one needs no restart. An answer counts for that try only: Enter
-// goes back to what the command line said.
+// The first try asks only for the password. A retry also asks for the key file and the slot of a
+// YubiKey, so that a database with those needs no restart. An answer counts for that try only:
+// Enter goes back to what the command line said.
 func (s *Session) OpenWithKeys(c Copy) (*snapshot.Snapshot, gateway.Credentials, error) {
+	if c.Slot != 0 {
+		if err := s.responder.Ready(); err != nil {
+			return nil, gateway.Credentials{}, err
+		}
+	}
 	for retry := false; ; retry = true {
 		passwords, err := s.askPassword(c.Path)
 		if err != nil {
 			return nil, gateway.Credentials{}, err
 		}
-		keyFile := c.KeyFile
+		keyFile, slot := c.KeyFile, c.Slot
 		if retry {
 			if keyFile, err = s.askKeyFile(c.Path, c.KeyFile); err != nil {
 				return nil, gateway.Credentials{}, err
 			}
+			if slot, err = s.askSlot(c.Path, c.Slot); err != nil {
+				return nil, gateway.Credentials{}, err
+			}
 		}
-		snap, keys, err := tryPasswords(c.Path, passwords, keyFile)
+		snap, keys, err := s.tryPasswords(c.Path, passwords, keyFile, slot)
 		switch {
 		case errors.Is(err, gateway.ErrWrongCredentials):
-			s.say(text.WrongCredentials(c.Path))
+			s.say(wrongCredentials(c.Path, slot))
 		case errors.Is(err, gateway.ErrKeyFile):
 			s.say(text.KeyFileUnreadable(keyFile))
+		case errors.Is(err, challenge.ErrNoResponse):
+			s.say(text.YubiKeyNoResponse(slot))
 		default:
 			return snap, keys, err
 		}
 	}
 }
 
+func wrongCredentials(path string, slot int) string {
+	if slot != 0 {
+		return text.WrongCredentialsWithYubiKey(path, slot)
+	}
+	return text.WrongCredentials(path)
+}
+
 // tryPasswords stops at the first password that fits.
-func tryPasswords(path string, passwords [][]byte, keyFile string) (*snapshot.Snapshot, gateway.Credentials, error) {
+func (s *Session) tryPasswords(path string, passwords [][]byte, keyFile string, slot int) (*snapshot.Snapshot, gateway.Credentials, error) {
 	var err error
 	for _, password := range passwords {
 		keys := gateway.Credentials{Password: password, KeyFile: keyFile}
+		if slot != 0 {
+			keys.YubiKey = s.responder.Key(slot)
+		}
 		var snap *snapshot.Snapshot
 		snap, err = gateway.Open(path, keys)
 		if !errors.Is(err, gateway.ErrWrongCredentials) {
@@ -138,6 +165,28 @@ func (s *Session) askKeyFile(path, current string) (string, error) {
 		return current, nil
 	}
 	return string(line), nil
+}
+
+// askSlot asks until the answer is a slot. The message about a bad answer does not repeat it: a
+// person who lost count of the questions may have typed a password here.
+func (s *Session) askSlot(path string, current int) (int, error) {
+	for {
+		fmt.Fprint(s.prompts, text.YubiKeySlotPrompt(path, current))
+		line, err := s.readPlainLine()
+		if errors.Is(err, ErrNoInput) {
+			return current, nil
+		}
+		if err != nil {
+			return 0, err
+		}
+		if len(line) == 0 {
+			return current, nil
+		}
+		if slot, ok := challenge.ParseSlot(string(line)); ok {
+			return slot, nil
+		}
+		s.say(text.YubiKeySlotAnswerInvalid)
+	}
 }
 
 func (s *Session) isTerminal() bool { return term.IsTerminal(int(s.stdin.Fd())) }

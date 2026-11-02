@@ -118,7 +118,7 @@ func MergeUnanswered(count int) string {
 // What merge says at its end.
 const (
 	// MergeKeysNew says that the keys the person set open the new file.
-	MergeKeysNew = "Новий файл відкривають нові пароль і файл-ключ, які ви задали."
+	MergeKeysNew = "Новий файл відкривають нові ключі, які ви задали."
 	// MergeDecisionsKept says that the next merge will not ask the same.
 	MergeDecisionsKept = "Ваші відповіді записано в новий файл: наступне злиття не питатиме про те саме."
 	// SummaryHeader stands in front of the counts.

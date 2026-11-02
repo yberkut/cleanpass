@@ -75,9 +75,9 @@ func TestCompareKeepsEverySecretOutOfTheWholeReport(t *testing.T) {
 	deleted := copyOf(t, base, "deleted.kdbx")
 	deleted.CLI(t, "rm", workEntry)
 
-	// A wrong password first: the marker in it must stay out as well. An empty line answers the
-	// question about a key file after it, and each other line repeats the password.
-	stdin := "неправильний-" + secretMarker + "\n" + master + "\n" + strings.Repeat("\n", 4)
+	// A wrong password first: the marker in it must stay out as well. Two empty lines answer the
+	// questions about a key file and a slot after it, and each other line repeats the password.
+	stdin := "неправильний-" + secretMarker + "\n" + master + "\n" + strings.Repeat("\n", 5)
 	got := testkit.Run(t, stdin, "compare", base.Path, ahead.Path, other.Path, deleted.Path)
 
 	wantCode(t, got, 0)

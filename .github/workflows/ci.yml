@@ -58,6 +58,12 @@ jobs:
             go.sum
             third_party/gokeepasslib/go.sum
 
+      # kdbxweb reads the results with a key in software. It needs Argon2 of Node, from 24.7. Without
+      # that Node the test skips itself.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+
       - name: Download KeePassXC
         shell: bash
         env:

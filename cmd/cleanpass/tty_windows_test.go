@@ -182,6 +182,7 @@ func TestPasswordIsHiddenOnATerminal(t *testing.T) {
 		right    = "SECRET-MARKER-right"
 		answer   = "visible-answer.key"
 		question = "Файл-ключ для"
+		slot     = "Слот YubiKey для"
 		prompt   = "Пароль для"
 	)
 	db := testkit.DB{Path: filepath.Join(t.TempDir(), "a.kdbx"), Password: right}.Import(t, testkit.RichXML())
@@ -194,11 +195,15 @@ func TestPasswordIsHiddenOnATerminal(t *testing.T) {
 	c.typeLine(right)
 	c.waitFor(question, 1)
 	c.typeLine(answer)
+	c.waitFor(slot, 1)
+	c.typeLine("") // Enter means no key in a slot
 	c.waitFor("Не вдалося прочитати файл-ключ", 1)
 	c.waitFor(prompt, 3)
 	c.typeLine("") // Enter repeats the password that was typed
 	c.waitFor(question, 2)
 	c.typeLine("") // Enter means no key file
+	c.waitFor(slot, 2)
+	c.typeLine("")
 
 	if code := c.exitCode(); code != 0 {
 		t.Errorf("exit code %d\nscreen:\n%q", code, c.screen())

@@ -396,6 +396,8 @@ func TestANewPasswordIsHiddenOnATerminal(t *testing.T) {
 	c.typeLine(newPassword)
 	c.waitFor("Новий файл-ключ", 1)
 	c.typeLine("")
+	c.waitFor("Новий слот YubiKey", 1)
+	c.typeLine("")
 
 	if code := c.exitCode(); code != 0 {
 		t.Fatalf("exit code %d\n%q", code, c.screen())

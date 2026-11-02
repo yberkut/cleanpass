@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/yberkut/cleanpass/internal/challenge"
 	"github.com/yberkut/cleanpass/internal/gateway"
 	"github.com/yberkut/cleanpass/internal/report"
 	"github.com/yberkut/cleanpass/internal/text"
@@ -56,8 +57,8 @@ func (s *Session) ChooseKeys(paths []string, newest int) (KeysChoice, error) {
 	}
 }
 
-// askNewKeys asks until the keys protect something: a file with neither a password nor a key file
-// would open for anyone.
+// askNewKeys asks until the keys protect something: a file with no password, no key file and no
+// YubiKey would open for anyone.
 func (s *Session) askNewKeys() (gateway.Credentials, error) {
 	for {
 		password, err := s.askNewPassword()
@@ -68,10 +69,19 @@ func (s *Session) askNewKeys() (gateway.Credentials, error) {
 		if err != nil {
 			return gateway.Credentials{}, err
 		}
-		if password != nil || keyFile != "" {
-			return gateway.Credentials{Password: password, KeyFile: keyFile}, nil
+		slot, err := s.askNewSlot()
+		if err != nil {
+			return gateway.Credentials{}, err
 		}
-		s.say(text.NewKeysEmpty)
+		if password == nil && keyFile == "" && slot == 0 {
+			s.say(text.NewKeysEmpty)
+			continue
+		}
+		keys := gateway.Credentials{Password: password, KeyFile: keyFile}
+		if slot != 0 {
+			keys.YubiKey = s.responder.Key(slot)
+		}
+		return keys, nil
 	}
 }
 
@@ -114,5 +124,29 @@ func (s *Session) askNewKeyFile() (string, error) {
 			return path, nil
 		}
 		s.say(text.KeyFileUnreadable(path))
+	}
+}
+
+// askNewSlot gives 0 for no YubiKey. It asks again when the program for a key is not there, because
+// the write would stop on that only after all the answers.
+func (s *Session) askNewSlot() (int, error) {
+	for {
+		fmt.Fprint(s.prompts, text.NewKeysSlotPrompt)
+		line, err := s.readPlainLine()
+		if err != nil {
+			return 0, err
+		}
+		if len(line) == 0 {
+			return 0, nil
+		}
+		slot, ok := challenge.ParseSlot(string(line))
+		switch {
+		case !ok:
+			s.say(text.YubiKeySlotAnswerInvalid)
+		case s.responder.Ready() != nil:
+			s.say(text.YkmanMissing)
+		default:
+			return slot, nil
+		}
 	}
 }
