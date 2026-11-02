@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/yberkut/cleanpass/internal/gateway"
+	// The name of the package is taken in this package: status has a function named judge.
+	keepassxc "github.com/yberkut/cleanpass/internal/judge"
 	"github.com/yberkut/cleanpass/internal/lossaudit"
 	"github.com/yberkut/cleanpass/internal/merge"
 	"github.com/yberkut/cleanpass/internal/report"
@@ -214,17 +216,40 @@ func writeResult(env Env, output string, opened openedCopies, merged *snapshot.S
 			}
 			return nil
 		},
-		Judge: outsideCheck(env),
+		Judge: outsideCheck(env, merged, keysFrom.keys),
 	})
 }
 
-// outsideCheck is step 6 of the protocol, the place of the KeePassXC Judge. No outside program
-// looks at the file yet, and the person has to know that.
-func outsideCheck(env Env) func(temp string) error {
-	return func(string) error {
-		_, err := fmt.Fprintln(env.Stdout, text.MergeNoOutsideCheck)
+// outsideCheck is step 6 of the protocol: the KeePassXC Judge compares what the real program sees
+// in the file with the expected result. Without a program that can do that the work goes on, and
+// the person has to know that no one outside looked at the file.
+func outsideCheck(env Env, expected *snapshot.Snapshot, keys gateway.Credentials) func(temp string) error {
+	return func(temp string) error {
+		program, err := keepassxc.Find()
+		if err != nil {
+			_, printErr := fmt.Fprintln(env.Stdout, describeMissingJudge(err))
+			return printErr
+		}
+		if _, err := fmt.Fprintln(env.Stderr, text.JudgeWorking); err != nil {
+			return err
+		}
+		if err := program.Check(temp, expected, keys); err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(env.Stdout, text.JudgeAgrees)
 		return err
 	}
+}
+
+func describeMissingJudge(err error) string {
+	var unusable *keepassxc.UnusableError
+	switch {
+	case !errors.As(err, &unusable):
+		return text.JudgeNotFound
+	case unusable.Version != "":
+		return text.JudgeTooOld(unusable.Path, unusable.Version)
+	}
+	return text.JudgeDoesNotRun(unusable.Path)
 }
 
 func reportWriteError(env Env, output string, err error) int {
@@ -241,7 +266,12 @@ func reportWriteError(env Env, output string, err error) int {
 func describeWriteError(output string, err error) string {
 	var changed *safewriter.InputChangedError
 	var readBack *gateway.ReadBackError
+	var judged *keepassxc.MismatchError
 	switch {
+	case errors.As(err, &judged):
+		return text.JudgeDiffers(judged.Place)
+	case errors.Is(err, keepassxc.ErrCannotRead):
+		return text.JudgeCannotRead
 	case errors.Is(err, safewriter.ErrTargetExists):
 		return text.MergeTargetExists(output)
 	case errors.Is(err, safewriter.ErrTargetIsInput):

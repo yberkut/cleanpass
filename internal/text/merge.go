@@ -60,11 +60,38 @@ func MergeWriteFailed(path string) string {
 
 // What merge says about a result.
 const (
-	// MergeNoOutsideCheck warns that no outside program has looked at the result.
-	MergeNoOutsideCheck = "Попередження: справжній KeePassXC цей результат не перевіряв."
 	// MergeInputsIntact says that the check of the originals has passed.
 	MergeInputsIntact = "Оригінали не змінились: контрольні суми файлів збігаються."
 )
+
+// What the KeePassXC Judge says.
+const (
+	// JudgeWorking says that the outside check has begun. It can take a while: the program runs
+	// the KDF of the file for each attachment.
+	JudgeWorking = "Справжній KeePassXC перевіряє результат..."
+	// JudgeAgrees says that the outside check has passed.
+	JudgeAgrees = "Справжній KeePassXC перевірив результат: він бачить те, що результат має містити."
+	// JudgeNotFound warns that no outside program has looked at the result.
+	JudgeNotFound = "Попередження: справжній KeePassXC цей результат не перевіряв, бо програми keepassxc-cli не знайдено. Щоб перевірити результат, встановіть KeePassXC або додайте keepassxc-cli до PATH і запустіть злиття ще раз."
+	// JudgeCannotRead stops a merge at a file the program cannot read.
+	JudgeCannotRead = "Справжній KeePassXC не зміг прочитати результат. Результат не створено, оригінали не змінено."
+)
+
+// JudgeDoesNotRun warns that the program is there and does not run.
+func JudgeDoesNotRun(path string) string {
+	return fmt.Sprintf("Попередження: справжній KeePassXC цей результат не перевіряв, бо програма %s не запускається.", path)
+}
+
+// JudgeTooOld warns that the program is too old for the format of a result.
+func JudgeTooOld(path, version string) string {
+	return fmt.Sprintf("Попередження: справжній KeePassXC цей результат не перевіряв, бо програма %s має версію %s, а потрібна щонайменше 2.7.", path, version)
+}
+
+// JudgeDiffers stops a merge at a result the program sees in another way. The place names a part
+// of a database and never a value.
+func JudgeDiffers(place string) string {
+	return fmt.Sprintf("Справжній KeePassXC бачить у результаті не те, що результат має містити (місце: %s). Результат не створено, оригінали не змінено.", place)
+}
 
 // MergeDone names the new file.
 func MergeDone(path string) string {
