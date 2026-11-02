@@ -42,6 +42,8 @@ const (
 	SectionDeletions  = "Видалення:"
 	SectionPairs      = "Схожі записи з різними UUID. Під час злиття про кожну пару буде питання, а без відповіді лишаться обидва:"
 	SectionGroups     = "Групи. Тула зробить це сама, без питання:"
+
+	SectionRememberedPairs = "Записи, які ви вже злили раніше. Питання не буде:"
 )
 
 // What became of the question about a deletion.
@@ -203,6 +205,12 @@ func PairDiffers(differences []string) string {
 // PairsIdentical counts the pairs one decision can merge.
 func PairsIdentical(count int) string {
 	return fmt.Sprintf("Пар з однаковим вмістом: %d. Під час злиття їх можна злити одним рішенням.", count)
+}
+
+// PairRemembered tells about an entry that took other entries in during an earlier merge, while
+// copies still hold those entries under their old UUIDs.
+func PairRemembered(count int, paths []string) string {
+	return fmt.Sprintf("Раніше сюди злито записів: %d. Під старим UUID вони ще є в: %s", count, strings.Join(paths, ", "))
 }
 
 // GroupsJoin names a group that takes other groups in.

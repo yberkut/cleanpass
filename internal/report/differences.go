@@ -55,6 +55,13 @@ func WriteDifferences(w io.Writer, facts merge.Facts) error {
 			out.line("  ", text.PairsIdentical(facts.IdenticalPairs))
 		}
 	}
+	if len(facts.RememberedPairs) > 0 {
+		out.header(text.SectionRememberedPairs)
+		for _, p := range byTitle(facts.RememberedPairs, func(p merge.PairRemembered) string { return p.Label.Title }) {
+			out.line("  ", labelText(p.Label, p.Entry))
+			out.line("    ", text.PairRemembered(len(p.Absorbed), p.Copies))
+		}
+	}
 	if len(facts.GroupsJoined)+len(facts.GroupCycles) > 0 {
 		out.header(text.SectionGroups)
 		for _, g := range byTitle(facts.GroupsJoined, func(g merge.GroupsJoined) string { return g.Name }) {

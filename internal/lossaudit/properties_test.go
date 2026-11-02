@@ -411,6 +411,85 @@ func TestPropertyAnAbsorbedEntryLivesOnUnderItsSurvivor(t *testing.T) {
 	})
 }
 
+// TestPropertyTheAuditReadsTheMemoryByItself: an old copy brings an entry the human has deleted in
+// an earlier merge. The engine leaves it out. The audit accepts that only by what the copies hold:
+// without the memory the entry is a loss, and so is a version the memory does not name.
+func TestPropertyTheAuditReadsTheMemoryByItself(t *testing.T) {
+	checked := 0
+	rapid.Check(t, func(t *rapid.T) {
+		s := mergetest.Scenarios().Draw(t, "scenario")
+		in := merge.Input{Copies: s.Copies, Now: s.Now, Key: drawKey(t)}
+		for _, q := range runEngine(t, in).Questions {
+			if _, isDeletion := q.Detail.(merge.Deletion); isDeletion {
+				in.Decisions = append(in.Decisions, merge.Decision{Question: q.ID, Choice: merge.AnswerDelete})
+			}
+		}
+		first := runEngine(t, in)
+		for _, old := range s.Copies {
+			again := runEngine(t, merge.Input{
+				Copies: []merge.Copy{{Name: "result", Snapshot: first.Merged}, old},
+				Now:    s.Now,
+				Key:    in.Key,
+			})
+			allowed := lossaudit.Allowed{MergedGroups: again.MergedGroups}
+			kept := map[snapshot.UUID]bool{}
+			again.Merged.Root.Walk(func(g *snapshot.Group) {
+				for i := range g.Entries {
+					kept[g.Entries[i].UUID] = true
+				}
+			})
+			var gone []snapshot.UUID
+			old.Snapshot.Root.Walk(func(g *snapshot.Group) {
+				for i := range g.Entries {
+					if !kept[g.Entries[i].UUID] {
+						gone = append(gone, g.Entries[i].UUID)
+					}
+				}
+			})
+			if len(gone) == 0 {
+				continue
+			}
+			checked++
+
+			copies := []*snapshot.Snapshot{first.Merged, old.Snapshot}
+			if losses := lossaudit.Audit(lossaudit.Input{Copies: copies, Result: again.Merged, Allowed: allowed}); len(losses) != 0 {
+				t.Errorf("the memory names these versions, and the audit gave %+v", losses)
+			}
+
+			forgetful := mergetest.Clone(first.Merged)
+			forgetful.Meta.CustomData = slices.DeleteFunc(forgetful.Meta.CustomData, func(item snapshot.CustomDataItem) bool {
+				return strings.HasPrefix(item.Key, "cleanpass/accepted/")
+			})
+			withoutMemory := []*snapshot.Snapshot{forgetful, old.Snapshot}
+			losses := lossaudit.Audit(lossaudit.Input{Copies: withoutMemory, Result: again.Merged, Allowed: allowed})
+			for _, id := range gone {
+				if !slices.ContainsFunc(losses, func(l lossaudit.Loss) bool { return l.Kind == lossaudit.VersionLost && l.Object == id }) {
+					t.Errorf("no copy holds the memory, and the audit let entry %s go: %+v", id, losses)
+				}
+			}
+
+			edited := mergetest.Clone(old.Snapshot)
+			edit := time.Date(2001, 2, 3, 4, 5, 6, 0, time.UTC)
+			edited.Root.Walk(func(g *snapshot.Group) {
+				for i := range g.Entries {
+					if g.Entries[i].UUID == gone[0] {
+						g.Entries[i].History = append(g.Entries[i].History, g.Entries[i].EntryVersion)
+						g.Entries[i].Times.LastModification = edit
+					}
+				}
+			})
+			want := lossaudit.Loss{Kind: lossaudit.VersionLost, Object: gone[0], Time: edit}
+			losses = lossaudit.Audit(lossaudit.Input{Copies: []*snapshot.Snapshot{first.Merged, edited}, Result: again.Merged, Allowed: allowed})
+			if !slices.Contains(losses, want) {
+				t.Errorf("the memory does not name the edit, and the audit gave %+v", losses)
+			}
+		}
+	})
+	if checked == 0 {
+		t.Error("no scenario left an entry out through the memory")
+	}
+}
+
 // TestPropertyTheAuditChangesNothing: the writer still needs the result after the audit.
 func TestPropertyTheAuditChangesNothing(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {

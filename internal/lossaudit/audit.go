@@ -32,8 +32,11 @@ type Input struct {
 // more go than it names: deleting a group does not cover its entries, and no reason covers a
 // deletion record, a custom icon, custom data or the bytes of an attachment that a kept
 // version refers to.
+//
+// A decision of an earlier merge is not here. The audit does not take that from the engine: it
+// reads it from the copies, see rememberedDeletions.
 type Allowed struct {
-	// Deleted holds the entries and the groups the human explicitly chose to delete.
+	// Deleted holds the entries and the groups the human explicitly chose to delete in this merge.
 	Deleted []snapshot.UUID
 	// Absorbed maps an entry the human merged into another one to the entry that took its
 	// versions. The versions themselves must stay. Deleting the entry that took them
@@ -90,7 +93,13 @@ type Loss struct {
 // Audit lists what the copies hold and the result does not, in a fixed order. An empty list
 // means that nothing is lost.
 func Audit(in Input) []Loss {
-	a := auditor{in: in, chosenToDelete: map[snapshot.UUID]bool{}, losses: map[Loss]bool{}}
+	a := auditor{
+		in:             in,
+		chosenToDelete: map[snapshot.UUID]bool{},
+		remembered:     rememberedDeletions(in.Copies),
+		kept:           keptVersions(in.Result),
+		losses:         map[Loss]bool{},
+	}
 	for _, id := range in.Allowed.Deleted {
 		a.chosenToDelete[id] = true
 	}
@@ -108,7 +117,11 @@ func Audit(in Input) []Loss {
 type auditor struct {
 	in             Input
 	chosenToDelete map[snapshot.UUID]bool
-	losses         map[Loss]bool
+	// remembered holds the keys of the deletions the copies remember.
+	remembered map[string]bool
+	// kept holds the identities of the versions of each entry of the result.
+	kept   map[snapshot.UUID]map[string]bool
+	losses map[Loss]bool
 }
 
 func (a *auditor) lose(loss Loss) { a.losses[loss] = true }
@@ -142,16 +155,28 @@ func walkVersions(e *snapshot.Entry, visit func(*snapshot.EntryVersion)) {
 	}
 }
 
-// checkVersions looks for each version of each entry of each copy in the result. A version
-// in the history and a main version count the same.
-func (a *auditor) checkVersions() {
+func keptVersions(result *snapshot.Snapshot) map[snapshot.UUID]map[string]bool {
 	kept := map[snapshot.UUID]map[string]bool{}
-	walkEntries(a.in.Result, func(e *snapshot.Entry) {
+	walkEntries(result, func(e *snapshot.Entry) {
 		if kept[e.UUID] == nil {
 			kept[e.UUID] = map[string]bool{}
 		}
 		walkVersions(e, func(v *snapshot.EntryVersion) { kept[e.UUID][versionIdentity(v)] = true })
 	})
+	return kept
+}
+
+// isKept says the result holds the version under one of the places. A version in the history and
+// a main version count the same.
+func (a *auditor) isKept(places []snapshot.UUID, v *snapshot.EntryVersion) bool {
+	identity := versionIdentity(v)
+	return slices.ContainsFunc(places, func(p snapshot.UUID) bool { return a.kept[p][identity] })
+}
+
+// checkVersions looks for each version of each entry of each copy in the result. Only a decision
+// of the human lets one stay out: of this merge for a whole entry, or of an earlier one for a
+// version that decision names.
+func (a *auditor) checkVersions() {
 	for _, c := range a.in.Copies {
 		walkEntries(c, func(e *snapshot.Entry) {
 			places := followLinks(e.UUID, a.in.Allowed.Absorbed)
@@ -159,13 +184,39 @@ func (a *auditor) checkVersions() {
 				return
 			}
 			walkVersions(e, func(v *snapshot.EntryVersion) {
-				identity := versionIdentity(v)
-				if !slices.ContainsFunc(places, func(p snapshot.UUID) bool { return kept[p][identity] }) {
+				if !a.isKept(places, v) && !a.humanSawItDeleted(places, v) {
 					a.lose(Loss{Kind: VersionLost, Object: e.UUID, Time: v.Times.LastModification.UTC()})
 				}
 			})
 		})
 	}
+}
+
+// The memory of decisions is a contract with the Merge Engine, written down in the custom data of
+// a copy. The audit reads it from the copies, not from the result and not from the engine, so a
+// bug in the engine cannot excuse itself. A key names an entry the human chose to delete and the
+// time of one version the human saw then: a version with any other time is news to the human.
+const rememberedDeletionPrefix = "cleanpass/accepted/"
+
+func rememberedDeletions(copies []*snapshot.Snapshot) map[string]bool {
+	remembered := map[string]bool{}
+	for _, c := range copies {
+		for i := range c.Meta.CustomData {
+			if key := c.Meta.CustomData[i].Key; strings.HasPrefix(key, rememberedDeletionPrefix) {
+				remembered[key] = true
+			}
+		}
+	}
+	return remembered
+}
+
+// humanSawItDeleted says a copy remembers that the human deleted one of the places, knowing a
+// version with this time.
+func (a *auditor) humanSawItDeleted(places []snapshot.UUID, v *snapshot.EntryVersion) bool {
+	seen := "/" + v.Times.LastModification.UTC().Format(time.RFC3339Nano)
+	return slices.ContainsFunc(places, func(p snapshot.UUID) bool {
+		return a.remembered[rememberedDeletionPrefix+p.String()+seen]
+	})
 }
 
 // checkAttachments looks at the bytes of every attachment a kept version refers to, by
@@ -184,10 +235,14 @@ func (a *auditor) checkAttachments() {
 	needed := map[snapshot.AttachmentID]snapshot.UUID{}
 	for _, c := range a.in.Copies {
 		walkEntries(c, func(e *snapshot.Entry) {
-			if a.deleted(followLinks(e.UUID, a.in.Allowed.Absorbed)) {
+			places := followLinks(e.UUID, a.in.Allowed.Absorbed)
+			if a.deleted(places) {
 				return
 			}
 			walkVersions(e, func(v *snapshot.EntryVersion) {
+				if a.humanSawItDeleted(places, v) && !a.isKept(places, v) {
+					return
+				}
 				for i := range v.Attachments {
 					id := v.Attachments[i].ID
 					if first, seen := needed[id]; held[id] && (!seen || compareUUIDs(e.UUID, first) < 0) {

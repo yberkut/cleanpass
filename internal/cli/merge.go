@@ -178,10 +178,10 @@ type lossesError struct{ losses []lossaudit.Loss }
 func (e *lossesError) Error() string { return "the audit found losses" }
 
 // allowedBy gives what the merge lets leave its place with no answer in this run: the groups on
-// one path, and what the memory of an earlier merge has decided about entries.
+// one path, and the entries an earlier merge has taken into others. An entry the human deleted in
+// an earlier merge is not here: the Loss Audit reads that from the copies by itself.
 func allowedBy(result *merge.Result) lossaudit.Allowed {
 	allowed := lossaudit.Allowed{
-		Deleted:      result.RememberedDeletions,
 		Absorbed:     make(map[snapshot.UUID]snapshot.UUID, len(result.Absorbed)),
 		MergedGroups: result.MergedGroups,
 	}

@@ -1,7 +1,6 @@
 package merge
 
 import (
-	"cmp"
 	"encoding/hex"
 	"maps"
 	"slices"
@@ -28,11 +27,15 @@ func init() {
 //	cleanpass/groups/<a>/<b>     groups a and b are one group, under the smaller UUID
 //	cleanpass/different/<a>/<b>  the human keeps these two similar entries apart
 //	cleanpass/rejected/<e>/<d>   the human kept entry e against a deletion dated up to d
-//	cleanpass/accepted/<e>/<d>   the human deleted entry e with no change after d
+//	cleanpass/accepted/<e>/<v>   the human deleted entry e and saw a version with the time v;
+//	                             one key for each time of a version
 //	cleanpass/replaced/<e>/<m>/<r> the human let the main version with date m of entry e stay
 //	                             on top of the versions up to date r that replaced it
 //
-// A later date or another change is new to the human, so the question comes again.
+// A later date or another change is new to the human, so the question comes again. For a deleted
+// entry a date is not enough: a clock that runs behind writes an old time on a new edit, and it
+// would go with the entry unseen. So any time the human did not see asks. The Loss Audit reads
+// the keys with accepted by itself, so their form is a contract with it.
 const memoryPrefix = "cleanpass/"
 
 const (
@@ -48,15 +51,21 @@ const (
 type memory struct {
 	entries, groups families
 	different       map[[2]snapshot.UUID]bool
-	deletions       map[snapshot.UUID][]rememberedDeletion
+	rejected        map[snapshot.UUID][]rejection
+	accepted        map[snapshot.UUID]*acceptance
 	replaced        map[snapshot.UUID][]rememberedOrder
 }
 
-type rememberedDeletion struct {
-	accepted bool
-	// through is the date in the key.
-	through time.Time
-	// decided is the date of the decision.
+// rejection is an answer that kept an entry against the deletions dated up to through.
+type rejection struct {
+	through, decided time.Time
+}
+
+// acceptance is what the answers that deleted an entry knew.
+type acceptance struct {
+	// seen holds the times of the versions the human saw, in the form of memoryDate.
+	seen map[string]bool
+	// decided is the date of the newest of these answers.
 	decided time.Time
 }
 
@@ -71,7 +80,8 @@ func readMemory(m *merger) {
 		entries:   families{},
 		groups:    families{},
 		different: map[[2]snapshot.UUID]bool{},
-		deletions: map[snapshot.UUID][]rememberedDeletion{},
+		rejected:  map[snapshot.UUID][]rejection{},
+		accepted:  map[snapshot.UUID]*acceptance{},
 		replaced:  map[snapshot.UUID][]rememberedOrder{},
 	}
 	metas := make([]*snapshot.Meta, len(m.in.Copies))
@@ -111,11 +121,21 @@ func (mem *memory) read(kind string, parts []string, value string) {
 				mem.different[orderedPair(a, b)] = true
 			}
 		}
-	case memoryRejected, memoryAccepted:
+	case memoryRejected:
 		if id, through, ok := uuidAndDate(parts); ok {
 			decided, _ := time.Parse(time.RFC3339Nano, value)
 			id = mem.entries.head(id)
-			mem.deletions[id] = append(mem.deletions[id], rememberedDeletion{accepted: kind == memoryAccepted, through: through, decided: decided})
+			mem.rejected[id] = append(mem.rejected[id], rejection{through: through, decided: decided})
+		}
+	case memoryAccepted:
+		if id, seen, ok := uuidAndDate(parts); ok {
+			decided, _ := time.Parse(time.RFC3339Nano, value)
+			id = mem.entries.head(id)
+			if mem.accepted[id] == nil {
+				mem.accepted[id] = &acceptance{seen: map[string]bool{}}
+			}
+			mem.accepted[id].seen[memoryDate(seen)] = true
+			mem.accepted[id].decided = later(mem.accepted[id].decided, decided)
 		}
 	case memoryReplaced:
 		if len(parts) != 3 {
@@ -174,27 +194,28 @@ func orderedPair(a, b snapshot.UUID) [2]snapshot.UUID {
 }
 
 // deletionAnswer gives the answer an earlier merge has given to this question, if it still holds.
-// A record about a newer deletion ends a rejection, and a newer change ends an acceptance. If
-// both hold, the newer decision counts, and of two at the same time the one that keeps the entry.
-func (mem *memory) deletionAnswer(d Deletion) (answer int, ok bool) {
-	var best *rememberedDeletion
-	for i := range mem.deletions[d.Entry] {
-		r := &mem.deletions[d.Entry][i]
-		holds := !d.Deleted.After(r.through)
-		if r.accepted {
-			holds = !d.Modified.After(r.through)
+// A record about a newer deletion ends a rejection. A version with a time the human did not see
+// ends an acceptance, whatever that time is. If both hold, the newer decision counts, and of two
+// at the same time the one that keeps the entry.
+func (mem *memory) deletionAnswer(e *entryState, d Deletion) (answer int, ok bool) {
+	var kept *rejection
+	for i := range mem.rejected[e.uuid] {
+		r := &mem.rejected[e.uuid][i]
+		if !d.Deleted.After(r.through) && (kept == nil || r.decided.After(kept.decided)) {
+			kept = r
 		}
-		if holds && (best == nil || cmp.Or(r.decided.Compare(best.decided), compareFlags(best.accepted, r.accepted)) > 0) {
-			best = r
-		}
+	}
+	accepted := mem.accepted[e.uuid]
+	if accepted != nil && slices.ContainsFunc(e.versions, func(v *version) bool { return !accepted.seen[memoryDate(v.key.time())] }) {
+		accepted = nil
 	}
 	switch {
-	case best == nil:
-		return 0, false
-	case best.accepted:
+	case accepted != nil && (kept == nil || accepted.decided.After(kept.decided)):
 		return AnswerDelete, true
+	case kept != nil:
+		return AnswerKeep, true
 	}
-	return AnswerKeep, true
+	return 0, false
 }
 
 // orderIsSettled says the human has let this main version stay on top of these newer edits.

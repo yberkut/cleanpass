@@ -89,7 +89,7 @@ func nextStep(files []*distinctFile, args []string, facts merge.Facts, unrelated
 	}
 	first := files[0].copies[0].Path
 	code, lines := standing(files)
-	if code != exitOK && len(facts.Entries)+len(facts.Deletions)+len(facts.Pairs) == 0 {
+	if code != exitOK && len(facts.Entries)+len(facts.Deletions)+len(facts.Pairs)+len(facts.RememberedPairs) == 0 {
 		lines = append([]string{text.CompareOtherDifferences}, lines...)
 	}
 	switch {
