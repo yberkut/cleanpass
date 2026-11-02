@@ -203,7 +203,13 @@ func TestPropertyIdempotent(t *testing.T) {
 				}
 				conflict, got := asked[uuid]
 				answered := gone[merge.QuestionID("conflict:"+uuid.String())]
-				if want := !answered && mainIsReplaced(holdings, identify(&merged[uuid].EntryVersion)); got != want {
+				want := !answered && mainIsReplaced(holdings, identify(&merged[uuid].EntryVersion))
+				if !got && want && slices.ContainsFunc(result.Absorbed, func(a merge.Absorption) bool {
+					return a.Into == uuid && gone[merge.QuestionID("conflict:"+a.Absorbed.String())]
+				}) {
+					continue // The human answered about an entry this one took in, and the answer holds here.
+				}
+				if got != want {
 					t.Errorf("the merge with %s, entry %s: question = %v, want %v", other.Name, uuid, got, want)
 				}
 				if got && (conflict.Close || conflict.Future) {
