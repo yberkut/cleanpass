@@ -65,8 +65,10 @@ func (m *merger) settle(e *entryState) {
 	}
 }
 
-// disputed gives the main versions that are in conflict: with different content, and no copy
-// with one of them holds the other in its history. It also says whether two of them are close.
+// disputed gives the main versions that are in conflict: with different content, no copy with one
+// of them holds the other in its history, and no copy holds both behind a main version of its own.
+// Such a copy has settled the two, for example an earlier merge with an answer of the human, and
+// the next merge with both old copies must not ask again. It also says whether two of them are close.
 //
 // The same content with another time is no conflict, because there is nothing to choose:
 // keepassxc-cli gives an entry a new time when it moves it to the bin, with no new content and
@@ -77,7 +79,7 @@ func (e *entryState) disputed() (keys []versionKey, near bool) {
 	for i, older := range mains {
 		for j := i + 1; j < len(mains); j++ {
 			newer := mains[j]
-			if older.content == newer.content || !e.apart(older, newer) || e.replaced(older, newer) || e.replaced(newer, older) {
+			if older.content == newer.content || !e.apart(older, newer) || e.replaced(older, newer) || e.replaced(newer, older) || e.bothReplaced(older, newer) {
 				continue
 			}
 			inConflict[i], inConflict[j] = true, true
@@ -123,6 +125,11 @@ func (e *entryState) replaced(old, by versionKey) bool {
 		}
 	}
 	return false
+}
+
+// bothReplaced says a copy holds both versions in its history.
+func (e *entryState) bothReplaced(a, b versionKey) bool {
+	return slices.ContainsFunc(e.holdings, func(h holding) bool { return h.history[a] && h.history[b] })
 }
 
 // replacingMain gives the main versions of the copies that hold the main version of the entry
@@ -204,9 +211,9 @@ func (e *entryState) find(key versionKey) *version {
 // copiesWithMain names the copies whose main version is this version, or went into it.
 func (e *entryState) copiesWithMain(key versionKey) []string {
 	var names []string
-	for i := range e.holdings {
-		if slices.Contains(e.holdings[i].stands, key) {
-			names = append(names, e.holdings[i].copy.Name)
+	for _, h := range e.allHoldings() {
+		if slices.Contains(h.stands, key) {
+			names = append(names, h.copy.Name)
 		}
 	}
 	slices.Sort(names)

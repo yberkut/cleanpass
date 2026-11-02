@@ -211,7 +211,61 @@ func TestPropertyIdempotent(t *testing.T) {
 				}
 			}
 		}
+
+		// All old copies in one merge raise nothing that one at a time does not raise.
+		all := runOn(t, merge.Input{Copies: append([]merge.Copy{own}, s.Copies...), Now: later, Key: in.Key})
+		wantSameSnapshot(t, all.Merged, result.Merged)
+		for _, q := range all.Questions {
+			if gone[q.ID] {
+				t.Errorf("the merge with all old copies asks %s again", q.ID)
+			}
+			if conflict, ok := q.Detail.(merge.Conflict); ok && (conflict.Close || conflict.Future) {
+				t.Errorf("the merge with all old copies, entry %s: a conflict is back: %s", conflict.Entry, printed(conflict))
+			}
+		}
 	})
+}
+
+// TestScenariosReachAConflictAnEarlierMergeSettled: the case of two old copies in one merge must
+// occur, or the last part of TestPropertyIdempotent says nothing.
+func TestScenariosReachAConflictAnEarlierMergeSettled(t *testing.T) {
+	reached := 0
+	for i := range 500 {
+		s := mergetest.Scenarios().Example(i)
+		in := merge.Input{Copies: s.Copies, Now: s.Now, Key: testKey}
+		first, err := merge.Run(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, q := range first.Questions {
+			if conflict, ok := q.Detail.(merge.Conflict); ok && conflict.Close {
+				in.Decisions = append(in.Decisions, merge.Decision{Question: q.ID, Choice: len(conflict.Versions) - 1})
+			}
+		}
+		result, err := merge.Run(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		own := heldEntries([]merge.Copy{{Name: "result", Snapshot: result.Merged}})
+		for uuid, holdings := range heldEntries(s.Copies) {
+			if len(own[uuid]) == 0 {
+				continue
+			}
+			settled := idsOf(own[uuid][0].versions[1:])
+			for i, a := range holdings {
+				for _, b := range holdings[i+1:] {
+					first, second := identify(a.main), identify(b.main)
+					if first != second && !idsOf(a.versions[1:])[second] && !idsOf(b.versions[1:])[first] && settled[first] && settled[second] {
+						reached++
+					}
+				}
+			}
+		}
+	}
+	t.Logf("%d conflicts between two copies that the result settled", reached)
+	if reached == 0 {
+		t.Error("no scenario has two old copies in conflict that the result holds behind its main version")
+	}
 }
 
 // A version as the spec sees it: its time and its content. The engine has its own way to
@@ -409,8 +463,9 @@ func ordersOf(holdings []held, tops map[versionID]*snapshot.EntryVersion) []copy
 }
 
 // mustAsk says, from the words of the spec and the ticket alone, whether the entry raises a
-// question: two main versions differ in content, no copy holds one of them behind the other, and
-// they are less than 24 hours apart or one of them comes from the future. A main version with
+// question: two main versions differ in content, no copy holds one of them behind the other or
+// both behind a third one, and they are less than 24 hours apart or one of them comes from the
+// future. A main version with
 // less custom data stands for the versions that absorb it, and says nothing against any of them.
 func mustAsk(holdings []held, now time.Time) bool {
 	tops := standing(versionsOfHoldings(holdings))
@@ -422,13 +477,16 @@ func mustAsk(holdings []held, now time.Time) bool {
 	for _, o := range orders {
 		maps.Copy(mains, o.mains)
 	}
+	bothReplaced := func(first, second versionID) bool {
+		return slices.ContainsFunc(orders, func(o copyOrder) bool { return o.behind[first] && o.behind[second] })
+	}
 	without := func(with, other versionID) bool {
 		return slices.ContainsFunc(orders, func(o copyOrder) bool { return o.mains[with] && !o.mains[other] })
 	}
 	ids := slices.Collect(maps.Keys(mains))
 	for i, a := range ids {
 		for _, b := range ids[i+1:] {
-			if identifyContent(tops[a]) == identifyContent(tops[b]) || !without(a, b) || !without(b, a) || replaced(a, b) || replaced(b, a) {
+			if identifyContent(tops[a]) == identifyContent(tops[b]) || !without(a, b) || !without(b, a) || replaced(a, b) || replaced(b, a) || bothReplaced(a, b) {
 				continue
 			}
 			first, second := tops[a].Times.LastModification, tops[b].Times.LastModification

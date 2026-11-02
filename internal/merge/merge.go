@@ -63,9 +63,6 @@ type Result struct {
 	// that group. All groups of a family map to the one with the smallest UUID. The root groups
 	// are not here: they are one group by themselves.
 	MergedGroups map[snapshot.UUID]snapshot.UUID
-	// RememberedDeletions lists the entries of the copies that left the tree because the memory
-	// says the human has deleted them, sorted. Decision.DeletesEntry names those of this merge.
-	RememberedDeletions []snapshot.UUID
 }
 
 // Event is one thing the report can tell. Each rule defines its own event types.
@@ -132,8 +129,6 @@ type merger struct {
 	sameEntries, sameGroups families
 	// remembered holds the keys of the decisions of this merge.
 	remembered map[string]bool
-	// rememberedDeletions holds the entries the memory has removed.
-	rememberedDeletions []snapshot.UUID
 	// out is the merged copy so far. A rule fills the parts it owns.
 	out snapshot.Snapshot
 
@@ -212,14 +207,12 @@ func (m *merger) finish() (*Result, error) {
 	slices.SortFunc(m.questions, func(a, b Question) int { return strings.Compare(string(a.ID), string(b.ID)) })
 	slices.SortStableFunc(m.report, func(a, b Event) int { return strings.Compare(a.sortKey(), b.sortKey()) })
 	merged := m.out
-	slices.SortFunc(m.rememberedDeletions, compareUUIDs)
 	return &Result{
-		Merged:              &merged,
-		Questions:           m.questions,
-		Report:              m.report,
-		Absorbed:            m.absorptions(),
-		MergedGroups:        m.mergedGroups(),
-		RememberedDeletions: m.rememberedDeletions,
+		Merged:       &merged,
+		Questions:    m.questions,
+		Report:       m.report,
+		Absorbed:     m.absorptions(),
+		MergedGroups: m.mergedGroups(),
 	}, nil
 }
 

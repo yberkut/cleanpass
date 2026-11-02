@@ -141,7 +141,7 @@ func (m *merger) settleDeletion(e *entryState) bool {
 		return false
 	}
 	detail := m.deletion(e, r)
-	choice, answered := m.memory.deletionAnswer(detail)
+	choice, answered := m.memory.deletionAnswer(e, detail)
 	remembered := answered
 	if !remembered {
 		choice, answered = m.ask(Question{
@@ -161,9 +161,6 @@ func (m *merger) settleDeletion(e *entryState) bool {
 	case choice == AnswerDelete && isRecorded:
 		outcome = DeletionApplied
 		delete(m.entries, e.uuid)
-		if remembered {
-			m.rememberedDeletions = append(m.rememberedDeletions, e.uuid)
-		}
 	case choice == AnswerDelete:
 		// No copy has removed the entry. The answer goes as far as the deletion went: the
 		// entry lies in the bin with all its versions, and the bin is for the human to empty.
@@ -184,16 +181,18 @@ func (m *merger) goesByMemory(e *entryState) bool {
 	if !isRecorded {
 		return false
 	}
-	answer, remembered := m.memory.deletionAnswer(m.deletion(e, r))
+	answer, remembered := m.memory.deletionAnswer(e, m.deletion(e, r))
 	return remembered && answer == AnswerDelete
 }
 
 // rememberDeletion stores an answer. A rejection holds for the deletions the human knew about. An
 // acceptance holds for the versions the human knew about: an old copy may hold any of them, so
-// the date is that of the newest version, or of the deletion if that is newer.
+// it names the time of each one.
 func (m *merger) rememberDeletion(e *entryState, d Deletion, choice int) {
 	if choice == AnswerDelete {
-		m.remember(memoryAccepted, e.uuid.String(), memoryDate(later(d.Deleted, e.main().key.time())))
+		for _, v := range e.versions {
+			m.remember(memoryAccepted, e.uuid.String(), memoryDate(v.key.time()))
+		}
 		return
 	}
 	through := d.Deleted

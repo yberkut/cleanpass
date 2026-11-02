@@ -135,9 +135,9 @@ type entryState struct {
 	// holdings holds one item for each place a copy holds this entry.
 	holdings []holding
 	// absorbed holds what the copies still hold of entries an earlier merge has taken into this
-	// one. These entries bring their versions and nothing else: what a copy does to an entry
-	// that is gone says nothing about this one. Only an entry with no holding of its own lies
-	// where they lie, see join.
+	// one. These entries bring their versions and a line in the report, and nothing else: what a
+	// copy does to an entry that is gone says nothing about this one. Only an entry with no
+	// holding of its own lies where they lie, see join.
 	absorbed []holding
 	// versions is the set of versions, the oldest first. The last one is the main version.
 	versions []*version
@@ -158,8 +158,9 @@ type holding struct {
 	// the copy holds the entry in a recycle bin.
 	group, source snapshot.UUID
 	entry         *snapshot.Entry
-	// main is the key of the main version in this copy.
-	main versionKey
+	// main and older are the keys of the main version and the history in this copy.
+	main  versionKey
+	older []versionKey
 	// stands holds the versions of the set that stand for main: main itself, or the versions
 	// that absorbed it.
 	stands []versionKey
@@ -168,12 +169,11 @@ type holding struct {
 	history map[versionKey]bool
 }
 
-// readOrder finds what the versions of this copy became in the set. older holds the keys of
-// the history of the copy.
-func (h *holding) readOrder(e *entryState, older []versionKey) {
+// readOrder finds what the versions of this copy became in the set, once all copies are read.
+func (h *holding) readOrder(e *entryState) {
 	h.stands = e.standIns(h.main, &h.entry.EntryVersion)
-	h.history = make(map[versionKey]bool, len(older))
-	for i, key := range older {
+	h.history = make(map[versionKey]bool, len(h.older))
+	for i, key := range h.older {
 		stands := e.standIns(key, &h.entry.History[i])
 		if slices.ContainsFunc(stands, func(k versionKey) bool { return slices.Contains(h.stands, k) }) {
 			continue
@@ -206,32 +206,35 @@ func (e *entryState) join(key Key) {
 		e.holdings, e.absorbed = e.absorbed, nil
 	}
 	for i := range e.absorbed {
-		old := e.absorbed[i].entry
-		e.put(key.versionKey(&old.EntryVersion), old.EntryVersion)
-		for j := range old.History {
-			e.put(key.versionKey(&old.History[j]), old.History[j])
-		}
+		e.read(&e.absorbed[i], key)
 	}
-	older := make([][]versionKey, len(e.holdings))
 	for i := range e.holdings {
 		h := &e.holdings[i]
-		h.main = key.versionKey(&h.entry.EntryVersion)
-		e.put(h.main, h.entry.EntryVersion)
-		located := h.entry.Times.LocationChanged
-		older[i] = make([]versionKey, len(h.entry.History))
-		for j := range h.entry.History {
-			old := &h.entry.History[j]
-			older[i][j] = key.versionKey(old)
-			e.put(older[i][j], *old)
-			located = later(located, old.Times.LocationChanged)
-		}
+		located := e.read(h, key)
 		if i == 0 || cmp.Or(located.Compare(e.located), compareUUIDs(h.group, e.group)) > 0 {
 			e.located, e.group = located, h.group
 		}
 	}
-	for i := range e.holdings {
-		e.holdings[i].readOrder(e, older[i])
+	for _, holdings := range [][]holding{e.absorbed, e.holdings} {
+		for i := range holdings {
+			holdings[i].readOrder(e)
+		}
 	}
+}
+
+// read adds the versions of a holding to the set, and it gives the newest move of those versions.
+func (e *entryState) read(h *holding, key Key) (located time.Time) {
+	h.main = key.versionKey(&h.entry.EntryVersion)
+	e.put(h.main, h.entry.EntryVersion)
+	located = h.entry.Times.LocationChanged
+	h.older = make([]versionKey, len(h.entry.History))
+	for j := range h.entry.History {
+		old := &h.entry.History[j]
+		h.older[j] = key.versionKey(old)
+		e.put(h.older[j], *old)
+		located = later(located, old.Times.LocationChanged)
+	}
+	return located
 }
 
 // put adds a version to the set. The same version in several places joins into one, and a

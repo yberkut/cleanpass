@@ -853,18 +853,20 @@ func TestStatusCallsAnOldCopyBehindAResultWithAnAnswerAboutADeletion(t *testing.
 		second = "00000000000000000000000000000101"
 		// The real deletions below have the time of this run, and an answer knows no later one.
 		through = "2099-01-01T00:00:00Z"
+		// The time of the one version of the entry in the fixture.
+		seen    = "2026-03-01T10:00:03Z"
 		decided = "2026-10-01T10:00:00Z"
 	)
 	noBin := strings.Replace(testkit.RichXML(), "<RecycleBinEnabled>True<", "<RecycleBinEnabled>False<", 1)
-	withAnswer := func(xml, kind string) string {
-		item := "<Item><Key>cleanpass/" + kind + "/" + second + "/" + through + "</Key><Value>" + decided + "</Value></Item>"
+	withAnswer := func(xml, kind, date string) string {
+		item := "<Item><Key>cleanpass/" + kind + "/" + second + "/" + date + "</Key><Value>" + decided + "</Value></Item>"
 		xml = strings.Replace(xml, "<Item><Key>meta-custom-key</Key>", item+"<Item><Key>meta-custom-key</Key>", 1)
 		return strings.Replace(xml, "<DeletedObjects>", "<DeletedObjects><DeletedObject><UUID>AAAAAAAAAAAAAAAAAAABAQ==</UUID><DeletionTime>"+decided+"</DeletionTime></DeletedObject>", 1)
 	}
 
 	t.Run("the human kept the entry", func(t *testing.T) {
 		dir := t.TempDir()
-		result := newCopy(t, dir, "result.kdbx", withAnswer(noBin, "rejected"))
+		result := newCopy(t, dir, "result.kdbx", withAnswer(noBin, "rejected", through))
 		deleted := newCopy(t, dir, "deleted.kdbx", noBin)
 		deleted.CLI(t, "rm", workEntry)
 
@@ -872,7 +874,7 @@ func TestStatusCallsAnOldCopyBehindAResultWithAnAnswerAboutADeletion(t *testing.
 	})
 	t.Run("the human deleted the entry", func(t *testing.T) {
 		dir := t.TempDir()
-		result := newCopy(t, dir, "result.kdbx", withAnswer(noBin, "accepted"))
+		result := newCopy(t, dir, "result.kdbx", withAnswer(noBin, "accepted", seen))
 		result.CLI(t, "rm", workEntry)
 		old := newCopy(t, dir, "old.kdbx", noBin)
 

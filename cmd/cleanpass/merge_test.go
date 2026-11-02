@@ -741,10 +741,11 @@ func TestMergeNeverPublishesAResultThatLost(t *testing.T) {
 // groups on one path, and what the memory of an earlier merge has decided.
 func TestMergePublishesWhatTheEngineMayMove(t *testing.T) {
 	const (
-		// The entry Друге in the fixture, and the entry Пошта.
-		second  = "00000000000000000000000000000101"
-		mail    = "00000000000000000000000000000100"
-		decided = "2026-10-01T10:00:00Z"
+		// The entry Друге in the fixture with the time of its one version, and the entry Пошта.
+		second     = "00000000000000000000000000000101"
+		secondTime = "2026-03-01T10:00:03Z"
+		mail       = "00000000000000000000000000000100"
+		decided    = "2026-10-01T10:00:00Z"
 	)
 	memory := func(xml string, keys ...string) string {
 		var items strings.Builder
@@ -774,10 +775,18 @@ func TestMergePublishesWhatTheEngineMayMove(t *testing.T) {
 			notInExport: []string{"<UUID>AAAAAAAAAAAAAAAAAAAAIQ==</UUID>"},
 		},
 		"an entry the human has deleted": {
-			first: replaced(t, memory(withoutSecond(mergeableXML()), "cleanpass/accepted/"+second+"/"+decided),
+			first: replaced(t, memory(withoutSecond(mergeableXML()), "cleanpass/accepted/"+second+"/"+secondTime),
 				"<DeletedObjects>", "<DeletedObjects><DeletedObject><UUID>AAAAAAAAAAAAAAAAAAABAQ==</UUID><DeletionTime>2026-09-01T10:00:00Z</DeletionTime></DeletedObject>"),
 			second:      mergeableXML(),
 			notInExport: []string{"<UUID>AAAAAAAAAAAAAAAAAAABAQ==</UUID><IconID>"},
+		},
+		// The old copy holds an edit with a time before the deletion. No date could tell it from
+		// what the human saw. With no answer the entry stays, and the audit has nothing to stop.
+		"an edit from a clock that runs behind, after the human deleted the entry": {
+			first: replaced(t, memory(withoutSecond(mergeableXML()), "cleanpass/accepted/"+second+"/"+secondTime),
+				"<DeletedObjects>", "<DeletedObjects><DeletedObject><UUID>AAAAAAAAAAAAAAAAAAABAQ==</UUID><DeletionTime>2026-09-01T10:00:00Z</DeletionTime></DeletedObject>"),
+			second:   replaced(t, mergeableXML(), "SECRET-MARKER-друге", "SECRET-MARKER-правка", "<LastModificationTime>"+secondTime+"<", "<LastModificationTime>2026-02-28T10:00:00Z<"),
+			inExport: []string{"SECRET-MARKER-правка"},
 		},
 		"an entry the human has merged into another": {
 			first:       memory(withoutSecond(mergeableXML()), "cleanpass/entries/"+mail+"/"+second),

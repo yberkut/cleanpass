@@ -105,6 +105,74 @@ func TestAPairTheHumanMergedDoesNotComeBackWithAnOldCopy(t *testing.T) {
 	})
 }
 
+// A copy that still holds an entry under its old UUID gets a word in the report: the block of the
+// entry that took it in would have no reason otherwise. Its line about that copy tells what the
+// copy holds, because a copy with the old UUID does hold the account.
+func TestAnOldCopyWithAMergedEntryGetsAnEventAndARightLine(t *testing.T) {
+	old := database(account(firstID, "Mail", "user", "", "one"), account(secondID, "Mail", "user", "", "two"))
+	result := answerTheOnlyPair(t, 1, old)
+	onlySecond := database(account(secondID, "Mail", "user", "", "two"))
+
+	for _, copies := range [][]merge.Copy{
+		{{Name: "result", Snapshot: result.Merged}, {Name: "old", Snapshot: onlySecond}},
+		{{Name: "old", Snapshot: onlySecond}, {Name: "result", Snapshot: result.Merged}},
+	} {
+		again := mustRun(t, input(copies...))
+
+		want := merge.PairRemembered{
+			Entry:    firstID,
+			Label:    merge.Label{Title: "Mail", UserName: "user"},
+			Absorbed: []snapshot.UUID{secondID},
+			Copies:   []string{"old"},
+		}
+		if !slices.ContainsFunc(again.Report, func(e merge.Event) bool { return reflect.DeepEqual(e, want) }) {
+			t.Errorf("report = %s, want %+v", printed(again.Report), want)
+		}
+		for _, event := range again.Report {
+			change, ok := event.(merge.EntryChange)
+			if !ok {
+				continue
+			}
+			for _, c := range change.Copies {
+				if !c.Holds {
+					t.Errorf("the report says %s does not hold the entry: %+v", c.Name, change)
+				}
+			}
+			if change.Outcome == merge.OutcomeNew {
+				t.Errorf("the report calls the entry new in a part of the copies: %+v", change)
+			}
+		}
+	}
+}
+
+// With no old UUID in any copy there is nothing to say: the memory alone is no news.
+func TestAPairOfAnEarlierMergeIsNoNewsWithoutAnOldCopy(t *testing.T) {
+	old := database(account(firstID, "Mail", "user", "", "one"), account(secondID, "Mail", "user", "", "two"))
+	result := answerTheOnlyPair(t, 1, old)
+
+	again := mergeOf(t, result.Merged)
+
+	for _, event := range again.Report {
+		t.Errorf("the report tells %s", printed(event))
+	}
+}
+
+// An entry the memory removes takes its event with it: the event about the deletion tells enough.
+func TestAPairOfADeletedEntryGivesNoEvent(t *testing.T) {
+	both := database(account(firstID, "Mail", "user", "", "one"), account(secondID, "Mail", "user", "", "two"))
+	merged := answerTheOnlyPair(t, 1, both).Merged
+	deleted := recorded(database(), snapshot.Deletion{UUID: firstID, Time: hours(9)})
+	result := answerTheOnly[merge.Deletion](t, merge.AnswerDelete, named(merged, deleted)...)
+
+	again := mergeOf(t, result.Merged, database(account(secondID, "Mail", "user", "", "two")))
+
+	for _, event := range again.Report {
+		if _, ok := event.(merge.PairRemembered); ok {
+			t.Errorf("the report tells %+v", event)
+		}
+	}
+}
+
 // answerTheOnlyPair answers the only question about one pair of these copies.
 func answerTheOnlyPair(t *testing.T, choice int, snapshots ...*snapshot.Snapshot) *merge.Result {
 	t.Helper()
@@ -277,28 +345,49 @@ func TestAnAcceptedDeletionDoesNotBringTheEntryBackFromAnOldCopy(t *testing.T) {
 	againWith(t, result, held, func(t *testing.T, again *merge.Result) {
 		wantNoQuestions(t, again)
 		wantSameData(t, again.Merged, result.Merged)
-		if want := []snapshot.UUID{mailID}; !slices.Equal(again.RememberedDeletions, want) {
-			t.Errorf("remembered deletions = %v, want %v", again.RememberedDeletions, want)
-		}
 		if change := theDeletionChange(t, again); change.Outcome != merge.DeletionApplied || !change.Remembered {
 			t.Errorf("outcome = %v, remembered = %v", change.Outcome, change.Remembered)
 		}
 	})
 }
 
-// The answer of this merge is in the decisions, so only an answer from the memory counts here.
-func TestAnAnswerOfThisMergeIsNoRememberedDeletion(t *testing.T) {
+// The answer of this merge is in the decisions, so the report does not call it remembered.
+func TestAnAnswerOfThisMergeIsNotCalledRemembered(t *testing.T) {
 	result := answerTheOnly[merge.Deletion](t, merge.AnswerDelete, named(
 		database(entry(version(hours(2), "gone"))),
 		recorded(database(), snapshot.Deletion{UUID: mailID, Time: hours(9)}),
 	)...)
 
-	if len(result.RememberedDeletions) != 0 {
-		t.Errorf("remembered deletions = %v", result.RememberedDeletions)
+	if change := theDeletionChange(t, result); change.Outcome != merge.DeletionApplied || change.Remembered {
+		t.Errorf("outcome = %v, remembered = %v", change.Outcome, change.Remembered)
 	}
 }
 
-// The human has deleted the version with the newest time, which may be newer than the deletion.
+// The memory names each version the human knew, with one key for each time.
+func TestAnAcceptedDeletionNamesEachVersionTheHumanSaw(t *testing.T) {
+	first := database(entry(version(hours(2), "main"), version(hours(1), "older")))
+	second := database(entry(version(hours(30), "the newest"), version(hours(1), "older")))
+	deleted := recorded(database(), snapshot.Deletion{UUID: mailID, Time: hours(99)})
+
+	in := input(named(first, second, deleted)...)
+	q, _ := theDeletion(t, mustRun(t, in))
+	in.Decisions = []merge.Decision{{Question: q.ID, Choice: merge.AnswerDelete}}
+	merged := mustRun(t, in).Merged
+
+	var got []string
+	for _, item := range memoryItems(merged) {
+		got = append(got, item.Key)
+	}
+	var want []string
+	for _, at := range []float64{1, 2, 30} {
+		want = append(want, "cleanpass/accepted/"+mailID.String()+"/"+hours(at).Format(time.RFC3339Nano))
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("the memory holds %q, want %q", got, want)
+	}
+}
+
+// The human has deleted each version with the time it had then, whichever is the newest.
 func TestAnAcceptedDeletionHoldsForEachVersionTheHumanKnew(t *testing.T) {
 	held := database(entry(version(hours(20), "edited after the deletion")))
 	deleted := recorded(database(), snapshot.Deletion{UUID: mailID, Time: hours(9)})
@@ -308,26 +397,43 @@ func TestAnAcceptedDeletionHoldsForEachVersionTheHumanKnew(t *testing.T) {
 	wantNoQuestions(t, mergeOf(t, result.Merged, held))
 }
 
-// A change after the date is something the human has not seen. The entry comes back with the
-// question, and without an answer it stays.
-func TestAChangeAfterAnAcceptedDeletionAsksAgain(t *testing.T) {
-	held := database(entry(version(hours(2), "gone")))
-	deleted := recorded(database(), snapshot.Deletion{UUID: mailID, Time: hours(9)})
-	result := answerTheOnly[merge.Deletion](t, merge.AnswerDelete, named(deleted, held)...)
+// An old copy with a version of another time holds something the human has not seen, whatever that
+// time is. It comes back with the question, and without an answer the entry stays with it. A date
+// could not tell this: a system with a clock that runs behind writes an old time on a new edit.
+func TestAVersionOfAnotherTimeAsksAfterAnAcceptedDeletion(t *testing.T) {
+	for name, at := range map[string]float64{
+		"after the deletion":                    10,
+		"between the versions the human saw":    3,
+		"behind all the versions the human saw": -5,
+	} {
+		t.Run(name, func(t *testing.T) {
+			held := database(entry(version(hours(4), "gone"), version(hours(1), "older"), version(hours(2), "other")))
+			deleted := recorded(database(), snapshot.Deletion{UUID: mailID, Time: hours(9)})
+			result := answerTheOnly[merge.Deletion](t, merge.AnswerDelete, named(deleted, held)...)
 
-	edited := database(entry(version(hours(10), "edited later"), version(hours(2), "gone")))
+			edited := database(entry(version(hours(at), "an edit nobody saw"), version(hours(4), "gone")))
 
-	again := mergeOf(t, result.Merged, edited)
+			again := mergeOf(t, result.Merged, edited)
 
-	theDeletion(t, again)
-	wantVersions(t, onlyEntry(t, again.Merged), "edited later", "gone")
-	if len(again.RememberedDeletions) != 0 {
-		t.Errorf("remembered deletions = %v", again.RememberedDeletions)
+			if _, asked := deletionQuestions(again.Questions)[mailID]; !asked {
+				t.Errorf("no question about the deletion: %s", printed(again.Questions))
+			}
+			if change := theDeletionChange(t, again); change.Outcome != merge.DeletionOpen || change.Remembered {
+				t.Errorf("outcome = %v, remembered = %v", change.Outcome, change.Remembered)
+			}
+			e := onlyEntry(t, again.Merged)
+			if !slices.ContainsFunc(versionsOfEntry(e), func(v *snapshot.EntryVersion) bool {
+				return fieldValue(v, "Password") == "an edit nobody saw"
+			}) {
+				t.Errorf("the new edit is gone: %s", printed(e.Fields))
+			}
+		})
 	}
 }
 
-// keepassxc-cli gives an entry a new time when it moves it to the bin, with the same content.
-func TestANewTimeOnTheSameContentIsNoChangeAfterAnAcceptedDeletion(t *testing.T) {
+// keepassxc-cli gives an entry a new time when it moves it to the bin, with the same content. A
+// time says nothing about content, so this asks too: one question more, and nothing silent.
+func TestANewTimeOnTheSameContentAsksAfterAnAcceptedDeletion(t *testing.T) {
 	held := database(entry(version(hours(2), "gone")))
 	deleted := recorded(database(), snapshot.Deletion{UUID: mailID, Time: hours(9)})
 	result := answerTheOnly[merge.Deletion](t, merge.AnswerDelete, named(deleted, held)...)
@@ -335,7 +441,28 @@ func TestANewTimeOnTheSameContentIsNoChangeAfterAnAcceptedDeletion(t *testing.T)
 	moved := version(hours(10), "gone")
 	inBin := withBin(binID, entry(moved, version(hours(2), "gone")))
 
-	wantNoQuestions(t, mergeOf(t, result.Merged, inBin))
+	theDeletion(t, mergeOf(t, result.Merged, inBin))
+}
+
+// An old copy may hold only an entry that went into the deleted one. The human saw its versions
+// under the entry that took them.
+func TestAnAcceptedDeletionCoversAnEntryThatWentIntoIt(t *testing.T) {
+	both := database(account(firstID, "Mail", "user", "", "one"), account(secondID, "Mail", "user", "", "two"))
+	merged := answerTheOnlyPair(t, 1, both).Merged
+
+	deleted := recorded(database(), snapshot.Deletion{UUID: firstID, Time: hours(9)})
+	result := answerTheOnly[merge.Deletion](t, merge.AnswerDelete, named(merged, deleted)...)
+	if got := len(allEntries(result.Merged)); got != 0 {
+		t.Fatalf("%d entries after the answer, want none", got)
+	}
+
+	onlySecond := database(account(secondID, "Mail", "user", "", "two"))
+	again := mergeOf(t, result.Merged, onlySecond)
+
+	wantNoQuestions(t, again)
+	if got := len(allEntries(again.Merged)); got != 0 {
+		t.Errorf("%d entries after the merge with the old copy, want none", got)
+	}
 }
 
 // Two systems, two answers: the newer decision counts, whichever copy holds it.
@@ -369,6 +496,39 @@ func TestTheNewerDecisionAboutADeletionCounts(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The human has answered about two old copies, so the result holds both behind a new version.
+// Neither of them is news, also when both come along in one merge.
+func TestAnAnsweredConflictDoesNotAskAgainWithTwoOldCopiesAtOnce(t *testing.T) {
+	first, second := database(entry(version(hours(1), "one"))), database(entry(version(hours(2), "two")))
+	third := database(entry(version(hours(3), "three")))
+
+	for name, copies := range map[string][]*snapshot.Snapshot{
+		"two copies":   {first, second},
+		"three copies": {first, second, third},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// The last answer takes the oldest version, so the human makes a new version with it.
+			in := input(named(copies...)...)
+			q, conflict := theConflict(t, mustRun(t, in))
+			in.Decisions = []merge.Decision{{Question: q.ID, Choice: len(conflict.Versions) - 1}}
+			result := mustRun(t, in)
+
+			again := mergeOf(t, append([]*snapshot.Snapshot{result.Merged}, copies...)...)
+
+			wantNoQuestions(t, again)
+			wantSameData(t, again.Merged, result.Merged)
+		})
+	}
+}
+
+// The same two old copies without a result beside them are a true conflict, as they always were.
+func TestTwoCopiesInConflictStillAskWithAnUnrelatedThirdCopy(t *testing.T) {
+	first, second := database(entry(version(hours(1), "one"))), database(entry(version(hours(2), "two")))
+	onlyOne := database(entry(version(hours(3), "three"), version(hours(1), "one")))
+
+	theConflict(t, mergeOf(t, first, second, onlyOne))
 }
 
 // The memory holds with answers about an entry in the bin the same way.
