@@ -7,11 +7,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/signal"
+	"time"
 
 	"golang.org/x/term"
 
 	"github.com/yberkut/cleanpass/internal/gateway"
+	"github.com/yberkut/cleanpass/internal/interrupt"
 	"github.com/yberkut/cleanpass/internal/snapshot"
 	"github.com/yberkut/cleanpass/internal/text"
 )
@@ -19,8 +20,14 @@ import (
 // ErrNoInput means stdin ended before the person gave an answer.
 var ErrNoInput = errors.New("stdin ended")
 
-// exitInterrupted is the exit code after Ctrl+C during hidden input.
-const exitInterrupted = 130
+// ErrEchoingTerminal means a person types into a terminal that would show a password as it is
+// typed, and the program cannot hide it.
+var ErrEchoingTerminal = errors.New("this terminal shows what is typed")
+
+// settleAfterEnd is how long a read that ended on a terminal waits for Ctrl+C to take over. A
+// console of Windows ends the read at Ctrl+C, and the signal comes a moment later. Without this
+// wait the person who pressed Ctrl+C would get a result by the rules for no answer.
+const settleAfterEnd = 300 * time.Millisecond
 
 // Copy is one input file with what the command line says about it.
 type Copy struct {
@@ -34,6 +41,8 @@ type Session struct {
 	prompts io.Writer
 	// typed is the last password the person typed in this run.
 	typed []byte
+	// finished says no more answers come: the input ended, or the person said to stop asking.
+	finished bool
 }
 
 // New starts a dialog. Questions go to prompts, so that stdout holds only the result.
@@ -98,6 +107,9 @@ func (s *Session) say(line string) {
 // for three things the person cannot tell apart at a prompt: the password typed before,
 // no password at all, and the empty password, which is a different key.
 func (s *Session) askPassword(path string) ([][]byte, error) {
+	if echoesTyping(s.stdin) {
+		return nil, ErrEchoingTerminal
+	}
 	fmt.Fprint(s.prompts, text.PasswordPrompt(path, s.typed != nil))
 	line, err := s.readSecret()
 	if err != nil {
@@ -115,10 +127,7 @@ func (s *Session) askPassword(path string) ([][]byte, error) {
 
 func (s *Session) askKeyFile(path, current string) (string, error) {
 	fmt.Fprint(s.prompts, text.KeyFilePrompt(path, current))
-	line, err := readLine(s.stdin)
-	if !s.isTerminal() {
-		fmt.Fprintln(s.prompts) // no Enter from a person ended the line of the prompt
-	}
+	line, err := s.readPlainLine()
 	if errors.Is(err, ErrNoInput) {
 		return current, nil
 	}
@@ -133,6 +142,18 @@ func (s *Session) askKeyFile(path, current string) (string, error) {
 
 func (s *Session) isTerminal() bool { return term.IsTerminal(int(s.stdin.Fd())) }
 
+// readPlainLine reads a line anyone may see. It ends the line of the prompt when no Enter from a
+// person did that.
+func (s *Session) readPlainLine() ([]byte, error) {
+	line, err := readLine(s.stdin)
+	if !s.isTerminal() {
+		fmt.Fprintln(s.prompts)
+	} else if err != nil {
+		time.Sleep(settleAfterEnd)
+	}
+	return line, err
+}
+
 // readSecret reads a line that must not show on the screen. It ends the line of the
 // prompt itself, because neither hidden input nor a pipe does that.
 func (s *Session) readSecret() ([]byte, error) {
@@ -142,6 +163,7 @@ func (s *Session) readSecret() ([]byte, error) {
 	}
 	line, err := readHidden(int(s.stdin.Fd()))
 	if errors.Is(err, io.EOF) {
+		time.Sleep(settleAfterEnd)
 		return nil, ErrNoInput
 	}
 	return line, err
@@ -154,19 +176,7 @@ func readHidden(fd int) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	interrupt := make(chan os.Signal, 1)
-	done := make(chan struct{})
-	signal.Notify(interrupt, os.Interrupt)
-	defer signal.Stop(interrupt)
-	defer close(done)
-	go func() {
-		select {
-		case <-interrupt:
-			_ = term.Restore(fd, state)
-			os.Exit(exitInterrupted)
-		case <-done:
-		}
-	}()
+	defer interrupt.Guard(func() { _ = term.Restore(fd, state) })()
 	return term.ReadPassword(fd)
 }
 

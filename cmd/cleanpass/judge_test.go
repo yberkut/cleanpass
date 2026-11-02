@@ -508,7 +508,7 @@ func TestMergeWarnsAndGoesOnWithoutKeePassXC(t *testing.T) {
 	if !strings.Contains(got.Stdout, "keepassxc-cli") {
 		t.Errorf("the warning does not name the program:\n%s", got.Stdout)
 	}
-	wantUkrainian(t, got.Stdout, got.Stderr, a.Path, b.Path, result.Path, "keepassxc-cli", "PATH")
+	wantUkrainian(t, got.Stdout, got.Stderr, a.Path, b.Path, result.Path, "keepassxc-cli", "PATH", "b.example", "mail.example.com", "user@example.com", "quoted")
 	keptAllLines(t, result, a, b)
 }
 

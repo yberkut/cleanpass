@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/yberkut/cleanpass/internal/gateway"
+	"github.com/yberkut/cleanpass/internal/interrupt"
 	"github.com/yberkut/cleanpass/internal/session"
 	"github.com/yberkut/cleanpass/internal/text"
 )
@@ -49,7 +50,14 @@ func Run(args []string, env Env) int {
 	if !ok {
 		return fail(env, text.UnknownCommand(args[0]))
 	}
-	return run(env, args[1:])
+	// The steps go from the last one added, so these words come after all the others.
+	interrupt.Guard(func() {
+		fmt.Fprintln(env.Stderr)
+		fmt.Fprintln(env.Stderr, text.Interrupted)
+	})
+	code := run(env, args[1:])
+	interrupt.Finish()
+	return code
 }
 
 func fail(env Env, message string) int {
@@ -114,6 +122,8 @@ func checkCopies(copies []session.Copy) string {
 // describeFileError gives the text for the human about an error with a copy.
 func describeFileError(path string, err error) string {
 	switch {
+	case errors.Is(err, session.ErrEchoingTerminal):
+		return text.TerminalShowsPasswords
 	case errors.Is(err, session.ErrNoInput):
 		return text.NoPasswordGiven(path)
 	case errors.Is(err, gateway.ErrNotKDBX):

@@ -33,6 +33,9 @@ type FakePlan struct {
 	// WatchDirs and WatchFor look for clear text: at the end of each call, the fake notes each
 	// file below these directories that holds one of the texts.
 	WatchDirs, WatchFor []string
+	// HangCommand is a command that holds the database open and never ends by itself, as the real
+	// program does for a while when it runs a slow KDF. It first creates the file HangMarker.
+	HangCommand, HangMarker string
 }
 
 // FakeCall is what the fake noted about one call.

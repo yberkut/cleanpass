@@ -63,6 +63,9 @@ type Result struct {
 	// that group. All groups of a family map to the one with the smallest UUID. The root groups
 	// are not here: they are one group by themselves.
 	MergedGroups map[snapshot.UUID]snapshot.UUID
+
+	// asked holds what VersionsAsked gives.
+	asked map[QuestionID][]snapshot.EntryVersion
 }
 
 // Event is one thing the report can tell. Each rule defines its own event types.
@@ -135,6 +138,7 @@ type merger struct {
 	answers   map[QuestionID]int
 	used      map[QuestionID]bool
 	questions []Question
+	asked     map[QuestionID][]snapshot.EntryVersion
 	report    []Event
 	failure   error
 }
@@ -213,6 +217,7 @@ func (m *merger) finish() (*Result, error) {
 		Report:       m.report,
 		Absorbed:     m.absorptions(),
 		MergedGroups: m.mergedGroups(),
+		asked:        m.asked,
 	}, nil
 }
 

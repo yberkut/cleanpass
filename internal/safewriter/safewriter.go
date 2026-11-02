@@ -13,6 +13,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
+
+	"github.com/yberkut/cleanpass/internal/interrupt"
 )
 
 // The errors of Run about the target.
@@ -64,12 +68,25 @@ type Plan struct {
 	Audit func() error
 	// Judge gives the temporary file to an outside judge.
 	Judge func(temp string) error
+	// Interrupted hears what Ctrl+C left behind, just before the process ends. It may be nil.
+	Interrupted func(Interruption)
 }
 
-// Run carries out the protocol. Any error stops the work and leaves no temporary file and no
-// result. Only a crash can leave a temporary file, and that one is encrypted.
+// Interruption says what Ctrl+C left behind.
+type Interruption struct {
+	// TempLeft is the path of a temporary file that could not be removed, or empty.
+	TempLeft string
+	// Published says the result was already in its place.
+	Published bool
+}
+
+// Run carries out the protocol. Any error and Ctrl+C stop the work and leave no temporary file.
+// Only a crash can leave a temporary file, and that one is encrypted. An error leaves no result,
+// and Ctrl+C leaves one only if it was already in its place, whole.
 func Run(plan Plan) error {
 	faults := loadFaults()
+	guard := &tempGuard{interrupted: plan.Interrupted}
+	defer interrupt.Guard(guard.onInterrupt)()
 
 	faults.hit(PointCheckTarget)
 	paths := make([]string, 0, len(plan.Inputs))
@@ -86,7 +103,7 @@ func Run(plan Plan) error {
 	}
 
 	faults.hit(PointWriteTemp)
-	temp, err := writeTemp(plan.Target, plan.Encode, faults)
+	temp, err := writeTemp(plan.Target, plan.Encode, faults, guard)
 	if temp != "" {
 		// After a rename the temporary file is gone, and this finds nothing to remove.
 		defer os.Remove(temp)
@@ -111,7 +128,7 @@ func Run(plan Plan) error {
 	}
 
 	faults.hit(PointPublish)
-	if err := publish(temp, plan.Target, faults); err != nil {
+	if err := guard.publish(temp, plan.Target, faults); err != nil {
 		return err
 	}
 
@@ -187,21 +204,95 @@ func hashFile(path string) (digest [sha256.Size]byte, err error) {
 // writeTemp makes the temporary file beside the target: a rename stays on one file system
 // only there. CreateTemp creates it exclusively and open for its owner only. It gives the
 // path even with an error, so that the caller can remove what is there.
-func writeTemp(target string, encode func(io.Writer) error, faults *faults) (string, error) {
-	file, err := os.CreateTemp(filepath.Dir(target), "cleanpass-*.tmp")
+func writeTemp(target string, encode func(io.Writer) error, faults *faults, guard *tempGuard) (string, error) {
+	file, err := guard.create(filepath.Dir(target))
 	if err != nil {
 		return "", err
 	}
 	if err := encode(&partialWriteFault{file: file, faults: faults}); err != nil {
-		file.Close()
+		guard.closeFile()
 		return file.Name(), err
 	}
 	faults.hit(PointBeforeSync)
 	if err := file.Sync(); err != nil {
-		file.Close()
+		guard.closeFile()
 		return file.Name(), err
 	}
-	return file.Name(), file.Close()
+	return file.Name(), guard.closeFile()
+}
+
+// tempGuard knows the temporary file, so that Ctrl+C can take it away at any step. Its lock keeps
+// the steps apart: after an interrupt has taken it, no step that needs it goes on, and no result
+// gets its name behind the back of an interrupt.
+type tempGuard struct {
+	mu          sync.Mutex
+	path        string
+	file        *os.File
+	published   bool
+	interrupted func(Interruption)
+}
+
+func (g *tempGuard) create(directory string) (*os.File, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	file, err := os.CreateTemp(directory, "cleanpass-*.tmp")
+	if err != nil {
+		return nil, err
+	}
+	g.path, g.file = file.Name(), file
+	return file, nil
+}
+
+func (g *tempGuard) closeFile() error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	err := g.file.Close()
+	g.file = nil
+	return err
+}
+
+func (g *tempGuard) publish(temp, target string, faults *faults) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	err := publish(temp, target, faults)
+	g.published = err == nil
+	return err
+}
+
+// removeTries and removeWait bound the wait for a temporary file another process still reads: on
+// Windows no one can remove such a file, and a Judge that got the same Ctrl+C needs a moment to end.
+const (
+	removeTries = 50
+	removeWait  = 100 * time.Millisecond
+)
+
+// onInterrupt runs on Ctrl+C, on its own goroutine. The lock stays taken: the process ends after this.
+func (g *tempGuard) onInterrupt() {
+	g.mu.Lock()
+	if g.file != nil {
+		g.file.Close()
+	}
+	result := Interruption{Published: g.published}
+	if g.path != "" && !removeWithin(g.path, removeTries) {
+		result.TempLeft = g.path
+	}
+	if g.interrupted != nil {
+		g.interrupted(result)
+	}
+}
+
+// removeWithin says the file is gone.
+func removeWithin(path string, tries int) bool {
+	for try := 0; ; try++ {
+		err := os.Remove(path)
+		if err == nil || errors.Is(err, fs.ErrNotExist) {
+			return true
+		}
+		if try == tries {
+			return false
+		}
+		time.Sleep(removeWait)
+	}
 }
 
 // publish puts the temporary file at the target and never overwrites. A hard link does that

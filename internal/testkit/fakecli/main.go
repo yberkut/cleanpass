@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Plan says how to lie. The test kit has the same type and passes it in PlanVariable.
@@ -31,6 +32,8 @@ type Plan struct {
 	SwapAfterMkdir  string
 	WatchDirs       []string
 	WatchFor        []string
+	HangCommand     string
+	HangMarker      string
 }
 
 // Call is one line of the log.
@@ -89,6 +92,18 @@ func run(plan *Plan, call *Call) int {
 	call.Stdin = string(stdin)
 	if command == plan.FailCommand {
 		call.Lied = true
+		return 1
+	}
+	if command == plan.HangCommand {
+		database, err := os.Open(databaseOf(call.Args))
+		if err != nil {
+			fatal(err)
+		}
+		defer database.Close()
+		if err := os.WriteFile(plan.HangMarker, nil, 0o600); err != nil {
+			fatal(err)
+		}
+		time.Sleep(time.Minute)
 		return 1
 	}
 	switch command {

@@ -144,8 +144,10 @@ func (m *merger) settleDeletion(e *entryState) bool {
 	choice, answered := m.memory.deletionAnswer(e, detail)
 	remembered := answered
 	if !remembered {
+		id := QuestionID(deletionPrefix + e.uuid.String())
+		m.noteAsked(id, e.ruleMain)
 		choice, answered = m.ask(Question{
-			ID:      QuestionID(deletionPrefix + e.uuid.String()),
+			ID:      id,
 			Choices: 2,
 			Detail:  detail,
 		})

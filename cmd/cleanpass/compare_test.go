@@ -407,8 +407,9 @@ func wantUkrainian(t *testing.T, stdout, stderr string, paths ...string) {
 		"cleanpass": true, "compare": true, "status": true, "file": true, "help": true, "key": true,
 		"KDBX": true, "KDF": true, "AES": true, "ChaCha": true, "Twofish": true, "Argon": true,
 		"Enter": true, "stdin": true, "KeePass": true, "KeePassXC": true, "verbose": true, "sync": true,
-		"merge": true, "output": true,
-		"UUID": true, "URL": true,
+		"merge": true, "output": true, "allow": true, "unrelated": true,
+		"UUID": true, "URL": true, "Ctrl": true,
+		"Git": true, "Bash": true, "mintty": true, "winpty": true, "Windows": true, "Terminal": true,
 	}
 	for _, output := range []string{stdout, stderr} {
 		output = commandLine.ReplaceAllString(output, "")

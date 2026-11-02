@@ -83,6 +83,15 @@ func (p *Process) Send(t testing.TB, line string) {
 	}
 }
 
+// Interrupt sends the signal of Ctrl+C. Windows has no such signal between processes: a test there
+// presses the key in a console.
+func (p *Process) Interrupt(t testing.TB) {
+	t.Helper()
+	if err := p.cmd.Process.Signal(os.Interrupt); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Wait closes stdin and gives what the run gave.
 func (p *Process) Wait(t testing.TB) Result {
 	t.Helper()

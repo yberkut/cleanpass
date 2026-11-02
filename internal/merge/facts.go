@@ -20,6 +20,10 @@ type Facts struct {
 	// RememberedPairs holds the entries an earlier merge made of several, where a copy still holds
 	// one of them under its old UUID.
 	RememberedPairs []PairRemembered
+	// PairsMerged holds the entries that took other entries in, by answers of this run.
+	PairsMerged []PairMerged
+	// PairsNotMerged holds the pairs an answer of this run wanted merged in vain.
+	PairsNotMerged []PairNotMerged
 	// GroupsJoined holds the groups that took other groups in.
 	GroupsJoined []GroupsJoined
 	// GroupCycles holds the groups that left their parent to break a cycle.
@@ -40,6 +44,10 @@ func (r *Result) Facts() Facts {
 			facts.Deletions = append(facts.Deletions, e)
 		case PairRemembered:
 			facts.RememberedPairs = append(facts.RememberedPairs, e)
+		case PairMerged:
+			facts.PairsMerged = append(facts.PairsMerged, e)
+		case PairNotMerged:
+			facts.PairsNotMerged = append(facts.PairsNotMerged, e)
 		case GroupsJoined:
 			facts.GroupsJoined = append(facts.GroupsJoined, e)
 		case GroupCycleBroken:
