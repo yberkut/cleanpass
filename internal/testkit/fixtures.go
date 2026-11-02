@@ -20,7 +20,16 @@ var (
 	// <MasterKeyChanged/> empty.
 	//go:embed testdata/empty-time.kdbx
 	emptyTime []byte
+
+	// Made by kdbxweb with Argon2id at 1 MiB, password Password and a challenge-response key in
+	// software: HMAC-SHA1 with softkey.FixtureSecret over the padded challenge. It holds one
+	// entry with the title SoftHMACTitle.
+	//go:embed testdata/soft-hmac.kdbx
+	softHMAC []byte
 )
+
+// SoftHMACTitle is the title of the entry in SoftHMAC.
+const SoftHMACTitle = "made-by-kdbxweb"
 
 // UnknownFieldValue is the text of every unknown element in UnknownFields.
 const UnknownFieldValue = "keep-me"
@@ -45,6 +54,13 @@ func UnknownFields(t testing.TB, path string) DB {
 func EmptyTime(t testing.TB, path string) DB {
 	t.Helper()
 	return writeFixture(t, path, emptyTime)
+}
+
+// SoftHMAC writes the database from an independent implementation that needs a response of a
+// challenge-response key. DB opens it only with the fake ykman behind cleanpass.
+func SoftHMAC(t testing.TB, path string) DB {
+	t.Helper()
+	return writeFixture(t, path, softHMAC)
 }
 
 func writeFixture(t testing.TB, path string, content []byte) DB {

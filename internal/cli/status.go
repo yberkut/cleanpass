@@ -30,7 +30,7 @@ const (
 )
 
 // runStatus says whether the copies are the same, which one lags or that they diverged.
-// It only reads, and it starts no other process.
+// It only reads, and the only other process it can start is ykman, for a copy with a slot.
 func runStatus(env Env, args []string) int {
 	copies, problem := parseCopies(args)
 	if problem != "" {
@@ -202,13 +202,16 @@ type distinctFile struct {
 	holdsAll bool
 }
 
-// toOpen gives the copy to open for all of them: the same bytes need one open. A key file
-// given beside any of them counts.
+// toOpen gives the copy to open for all of them: the same bytes need one open. A key file or a
+// slot given beside any of them counts.
 func (f *distinctFile) toOpen() session.Copy {
 	c := f.copies[0]
 	for _, other := range f.copies {
 		if c.KeyFile == "" {
 			c.KeyFile = other.KeyFile
+		}
+		if c.Slot == 0 {
+			c.Slot = other.Slot
 		}
 	}
 	return c

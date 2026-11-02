@@ -33,6 +33,12 @@ type FakePlan struct {
 	// WatchDirs and WatchFor look for clear text: at the end of each call, the fake notes each
 	// file below these directories that holds one of the texts.
 	WatchDirs, WatchFor []string
+	// YubiKeySecret lets a call with --yubikey work with a key in software that holds this secret.
+	// The real program cannot meet such a key. So the fake hands it a twin of the file that opens
+	// without the key, and after a save it locks the file again with the key and a new salt. The
+	// real program still reads what the file holds, but nothing here tests how it uses a key. It
+	// works for a file with a password, and not with a key file.
+	YubiKeySecret string
 }
 
 // FakeCall is what the fake noted about one call.

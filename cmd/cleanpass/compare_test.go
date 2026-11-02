@@ -409,6 +409,7 @@ func wantUkrainian(t *testing.T, stdout, stderr string, paths ...string) {
 		"Enter": true, "stdin": true, "KeePass": true, "KeePassXC": true, "verbose": true, "sync": true,
 		"merge": true, "output": true,
 		"UUID": true, "URL": true,
+		"YubiKey": true, "yubikey": true, "ykman": true, "Yubico": true,
 	}
 	for _, output := range []string{stdout, stderr} {
 		output = commandLine.ReplaceAllString(output, "")

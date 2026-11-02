@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/yberkut/cleanpass/internal/gateway"
@@ -61,8 +62,21 @@ func (p Program) Check(temp string, want *snapshot.Snapshot, keys gateway.Creden
 	return nil
 }
 
+// Touches says how many times Check needs a touch of a key at most. Each call of the program runs
+// the KDF of the file and asks the key by itself, and the tool cannot lend it a response: one for
+// export and one for each attachment it can read. A save asks twice, for the old salt and for
+// the new one. The read of the saved copy then meets that new salt.
+func Touches(want *snapshot.Snapshot) int {
+	attachments := attachmentsOf(&want.Root)
+	touches := 1 + len(attachments.reachable)
+	if attachments.needSave {
+		touches += 2 + 1
+	}
+	return touches
+}
+
 // unlockArguments gives what opens the file in every call of the program. The password goes in
-// through stdin alone, see passwordLine. A YubiKey slot (ticket #14) belongs here: -y <slot>.
+// through stdin alone, see passwordLine.
 func unlockArguments(keys gateway.Credentials) []string {
 	arguments := []string{"--quiet"}
 	if keys.Password == nil {
@@ -70,6 +84,9 @@ func unlockArguments(keys gateway.Credentials) []string {
 	}
 	if keys.KeyFile != "" {
 		arguments = append(arguments, "--key-file", keys.KeyFile)
+	}
+	if keys.YubiKey != nil {
+		arguments = append(arguments, "--yubikey", strconv.Itoa(keys.YubiKey.Slot()))
 	}
 	return arguments
 }

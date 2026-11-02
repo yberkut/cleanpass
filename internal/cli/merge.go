@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yberkut/cleanpass/internal/challenge"
 	"github.com/yberkut/cleanpass/internal/gateway"
 	// The name of the package is taken in this package: status has a function named judge.
 	keepassxc "github.com/yberkut/cleanpass/internal/judge"
@@ -61,6 +62,9 @@ func runMerge(env Env, args []string) int {
 	}
 
 	lines := []string{text.MergeDone(output), text.MergeKeysFrom(keysFrom.path)}
+	if key := keysFrom.keys.YubiKey; key != nil {
+		lines = append(lines, text.MergeYubiKeyKept(key.Slot()))
+	}
 	if count := len(result.Questions); count > 0 {
 		lines = append(lines, text.MergeUnanswered(count))
 	}
@@ -91,7 +95,7 @@ func cutOutput(args []string) (output string, rest []string, problem string) {
 		switch {
 		case arg == "--":
 			return output, append(rest, args[i:]...), ""
-		case arg == "-k" || arg == "--key-file":
+		case takesAValue(arg):
 			rest = append(rest, arg)
 			if i+1 < len(args) {
 				i++
@@ -233,7 +237,15 @@ func outsideCheck(env Env, expected *snapshot.Snapshot, keys gateway.Credentials
 		if _, err := fmt.Fprintln(env.Stderr, text.JudgeWorking); err != nil {
 			return err
 		}
+		if keys.YubiKey != nil {
+			if _, err := fmt.Fprintln(env.Stderr, text.JudgeTouches(keepassxc.Touches(expected))); err != nil {
+				return err
+			}
+		}
 		if err := program.Check(temp, expected, keys); err != nil {
+			if keys.YubiKey != nil && errors.Is(err, keepassxc.ErrCannotRead) {
+				_, _ = fmt.Fprintln(env.Stderr, text.JudgeMaybeNoTouch)
+			}
 			return err
 		}
 		_, err = fmt.Fprintln(env.Stdout, text.JudgeAgrees)
@@ -272,6 +284,8 @@ func describeWriteError(output string, err error) string {
 		return text.JudgeDiffers(judged.Place)
 	case errors.Is(err, keepassxc.ErrCannotRead):
 		return text.JudgeCannotRead
+	case errors.Is(err, challenge.ErrNoResponse):
+		return text.MergeYubiKeyNoResponse
 	case errors.Is(err, safewriter.ErrTargetExists):
 		return text.MergeTargetExists(output)
 	case errors.Is(err, safewriter.ErrTargetIsInput):
