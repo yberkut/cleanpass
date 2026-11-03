@@ -423,27 +423,207 @@ func asKeePassXCWrites(s *snapshot.Snapshot) {
 	})
 }
 
-// withoutConflict says the copies hold what the spec calls a scenario without conflicts. A deletion
-// is out as well: here it asks, and the real merge goes another way. A cycle of groups is out,
-// because the real merge never ends on it. TestDifference... shows those cases.
-func withoutConflict(result *merge.Result) bool {
-	for _, q := range result.Questions {
-		switch q.Detail.(type) {
-		case merge.Conflict, merge.Deletion:
+// withoutConflict says the copies hold what the spec calls a scenario without conflicts. It reads
+// the copies alone, by the words of the spec, so that the code under test does not pick its own
+// cases. A scenario stays out if:
+//   - two copies hold different main versions of an entry and neither holds the other one in its
+//     history. A version is the same only if it is the same in all, so a version KeePassXC kept
+//     without its custom data counts as another one, and such a scenario stays out too;
+//   - the newest version of an entry is in the history of a copy with another main version: a
+//     clock ran behind, and the tool asks;
+//   - a record names a deleted entry a copy still holds, or a copy holds an entry in its bin while
+//     another one holds it outside. Here that asks, and the real merge goes another way;
+//   - the newest moves put groups under each other: the real merge never ends on such a cycle.
+//
+// TestDifference... shows those cases.
+func withoutConflict(copies []merge.Copy) bool {
+	type holding struct {
+		main    string
+		history map[string]bool
+	}
+	held := map[snapshot.UUID][]holding{}
+	newest := map[snapshot.UUID]time.Time{}
+	newestVersion := map[snapshot.UUID]string{}
+	recorded, inBin, outside := map[snapshot.UUID]bool{}, map[snapshot.UUID]bool{}, map[snapshot.UUID]bool{}
+	see := func(id snapshot.UUID, v *snapshot.EntryVersion) string {
+		version := fmt.Sprint(v.Times.LastModification.Unix(), contentOf(v), customDataOf(v))
+		if at := v.Times.LastModification; newestVersion[id] == "" || at.After(newest[id]) {
+			newest[id], newestVersion[id] = at, version
+		}
+		return version
+	}
+	for _, c := range copies {
+		s := c.Snapshot
+		for _, d := range s.Deletions {
+			recorded[d.UUID] = true
+		}
+		walkWithBin(s, func(g *snapshot.Group, binned bool) {
+			for i := range g.Entries {
+				e := &g.Entries[i]
+				h := holding{main: see(e.UUID, &e.EntryVersion), history: map[string]bool{}}
+				for j := range e.History {
+					h.history[see(e.UUID, &e.History[j])] = true
+				}
+				held[e.UUID] = append(held[e.UUID], h)
+				if binned {
+					inBin[e.UUID] = true
+				} else {
+					outside[e.UUID] = true
+				}
+			}
+		})
+	}
+	for id := range held {
+		if recorded[id] || (inBin[id] && outside[id]) {
 			return false
 		}
 	}
-	for _, event := range result.Report {
-		switch e := event.(type) {
-		case merge.EntryChange:
-			if e.Outcome == merge.OutcomeConflict || e.Outcome == merge.OutcomeAsked {
+	for id, holdings := range held {
+		for i, a := range holdings {
+			for _, b := range holdings[i+1:] {
+				if a.main != b.main && !a.history[b.main] && !b.history[a.main] {
+					return false
+				}
+			}
+			if a.main != newestVersion[id] && a.history[newestVersion[id]] {
 				return false
 			}
-		case merge.GroupCycleBroken:
-			return false
 		}
 	}
-	return true
+	return !groupsMoveInACycle(copies)
+}
+
+// The choice of scenarios reads the copies by the words of the spec. These cases pin it down.
+func TestTheDifferentialChoosesScenariosByTheCopiesAlone(t *testing.T) {
+	t.Parallel()
+	at := func(hour int) time.Time { return time.Date(2026, 1, 1, hour, 0, 0, 0, time.UTC) }
+	version := func(hour int, password string) snapshot.EntryVersion {
+		return snapshot.EntryVersion{Times: snapshot.Times{LastModification: at(hour)}, Fields: []snapshot.Field{{Key: "Password", Value: password}}}
+	}
+	entryID, binID, groupA, groupB := snapshot.UUID{1}, snapshot.UUID{2}, snapshot.UUID{3}, snapshot.UUID{4}
+	withEntry := func(e snapshot.Entry) *snapshot.Snapshot {
+		return &snapshot.Snapshot{Root: snapshot.Group{UUID: snapshot.UUID{9}, Entries: []snapshot.Entry{e}}}
+	}
+	entry := func(main snapshot.EntryVersion, history ...snapshot.EntryVersion) snapshot.Entry {
+		return snapshot.Entry{UUID: entryID, EntryVersion: main, History: history}
+	}
+	recorded := withEntry(entry(version(1, "a")))
+	recorded.Deletions = []snapshot.Deletion{{UUID: entryID, Time: at(5)}}
+	binned := &snapshot.Snapshot{Root: snapshot.Group{UUID: snapshot.UUID{9}, Groups: []snapshot.Group{{UUID: binID, Entries: []snapshot.Entry{entry(version(1, "a"))}}}}}
+	binned.Meta.RecycleBin = binID
+	moved := func(child, parent snapshot.UUID, hour int) *snapshot.Snapshot {
+		return &snapshot.Snapshot{Root: snapshot.Group{UUID: snapshot.UUID{9}, Groups: []snapshot.Group{{
+			UUID: parent, Groups: []snapshot.Group{{UUID: child, Times: snapshot.Times{LocationChanged: at(hour)}}},
+		}}}}
+	}
+
+	for name, tc := range map[string]struct {
+		copies []*snapshot.Snapshot
+		want   bool
+	}{
+		"the same entry":          {[]*snapshot.Snapshot{withEntry(entry(version(1, "a"))), withEntry(entry(version(1, "a")))}, true},
+		"one copy lags":           {[]*snapshot.Snapshot{withEntry(entry(version(1, "a"))), withEntry(entry(version(2, "b"), version(1, "a")))}, true},
+		"two edits":               {[]*snapshot.Snapshot{withEntry(entry(version(2, "b"), version(1, "a"))), withEntry(entry(version(3, "c"), version(1, "a")))}, false},
+		"a clock that ran behind": {[]*snapshot.Snapshot{withEntry(entry(version(5, "b"))), withEntry(entry(version(2, "c"), version(5, "b")))}, false},
+		"a record of deletion":    {[]*snapshot.Snapshot{withEntry(entry(version(1, "a"))), recorded}, false},
+		"the bin in one copy":     {[]*snapshot.Snapshot{withEntry(entry(version(1, "a"))), binned}, false},
+		"a cycle of groups":       {[]*snapshot.Snapshot{moved(groupA, groupB, 5), moved(groupB, groupA, 6)}, false},
+		"one move of a group":     {[]*snapshot.Snapshot{moved(groupA, groupB, 5), moved(groupA, groupB, 1)}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			copies := make([]merge.Copy, len(tc.copies))
+			for i, s := range tc.copies {
+				copies[i] = merge.Copy{Snapshot: s}
+			}
+			if got := withoutConflict(copies); got != tc.want {
+				t.Errorf("without conflict = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// walkWithBin visits each group of a copy and says whether it lies in the bin of that copy.
+func walkWithBin(s *snapshot.Snapshot, visit func(g *snapshot.Group, inBin bool)) {
+	var walk func(g *snapshot.Group, inBin bool)
+	walk = func(g *snapshot.Group, inBin bool) {
+		inBin = inBin || (!s.Meta.RecycleBin.IsZero() && g.UUID == s.Meta.RecycleBin)
+		visit(g, inBin)
+		for i := range g.Groups {
+			walk(&g.Groups[i], inBin)
+		}
+	}
+	walk(&s.Root, false)
+}
+
+// groupsMoveInACycle follows the parent of each group by its newest move, as the spec says. A move
+// into a bin counts for nothing while another copy holds the group outside.
+func groupsMoveInACycle(copies []merge.Copy) bool {
+	type move struct {
+		parent snapshot.UUID
+		at     time.Time
+		binned bool
+	}
+	moves := map[snapshot.UUID][]move{}
+	outside := map[snapshot.UUID]bool{}
+	for _, c := range copies {
+		parents := map[snapshot.UUID]snapshot.UUID{}
+		c.Snapshot.Root.Walk(func(g *snapshot.Group) {
+			for i := range g.Groups {
+				parents[g.Groups[i].UUID] = g.UUID
+			}
+		})
+		walkWithBin(c.Snapshot, func(g *snapshot.Group, binned bool) {
+			if parent, ok := parents[g.UUID]; ok {
+				moves[g.UUID] = append(moves[g.UUID], move{parent: parent, at: g.Times.LocationChanged, binned: binned})
+				outside[g.UUID] = outside[g.UUID] || !binned
+			}
+		})
+	}
+	newestParents := map[snapshot.UUID][]snapshot.UUID{}
+	for id, all := range moves {
+		counted := slices.DeleteFunc(slices.Clone(all), func(m move) bool { return outside[id] && m.binned })
+		if len(counted) == 0 {
+			continue
+		}
+		best := slices.MaxFunc(counted, func(a, b move) int { return a.at.Compare(b.at) }).at
+		for _, m := range counted {
+			if m.at.Equal(best) {
+				newestParents[id] = append(newestParents[id], m.parent)
+			}
+		}
+	}
+	var leadsTo func(from, to snapshot.UUID, seen map[snapshot.UUID]bool) bool
+	leadsTo = func(from, to snapshot.UUID, seen map[snapshot.UUID]bool) bool {
+		for _, parent := range newestParents[from] {
+			if parent == to {
+				return true
+			}
+			if !seen[parent] {
+				seen[parent] = true
+				if leadsTo(parent, to, seen) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	for id := range newestParents {
+		if leadsTo(id, id, map[snapshot.UUID]bool{}) {
+			return true
+		}
+	}
+	return false
+}
+
+func customDataOf(v *snapshot.EntryVersion) []string {
+	var items []string
+	for _, item := range v.CustomData {
+		if !item.IsService() {
+			items = append(items, item.Key+"="+item.Value)
+		}
+	}
+	slices.Sort(items)
+	return items
 }
 
 // keePassXCCanHold says the copies hold nothing KeePassXC has no way to hold or to order: a name of
@@ -545,11 +725,7 @@ func TestDifferentialWithGeneratedScenarios(t *testing.T) {
 			for i := range s.Copies {
 				asKeePassXCWrites(s.Copies[i].Snapshot)
 			}
-			result, err := merge.Run(merge.Input{Copies: s.Copies, Now: time.Now(), Key: merge.NewKey()})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !withoutConflict(result) || !keePassXCCanHold(s.Copies) {
+			if !withoutConflict(s.Copies) || !keePassXCCanHold(s.Copies) {
 				skipped++
 				continue
 			}
