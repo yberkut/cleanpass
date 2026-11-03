@@ -229,7 +229,9 @@ func TestScenariosReachEveryKindOfDecisionInTheMemory(t *testing.T) {
 // TestPropertyValidTree is the property of the spec: no cycles, and each entry in a group that
 // exists. The result is a tree by its form, so what can go wrong is a group or an entry that is
 // twice in it, is not in it, or lies in another place than a place a copy names. One bin holds all
-// bins of the copies, and no two plain groups stand on one path.
+// bins of the copies, and no two plain groups stand on one path, unless one group made of them
+// would lose what a person set on one of them: then both stay and the report names them, by the
+// decision of the review in docs/acceptance.md.
 func TestPropertyValidTree(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := mergetest.Scenarios().Draw(t, "scenario")
@@ -288,20 +290,65 @@ func TestPropertyValidTree(t *testing.T) {
 			t.Errorf("the bin %s of the result is %d times in the tree", bin, groups[bin])
 		}
 
+		apart := keptApart(result.Events)
 		merged.Root.Walk(func(g *snapshot.Group) {
-			names := map[string]snapshot.UUID{}
+			onPath := map[string][]*snapshot.Group{}
 			for i := range g.Groups {
 				child := &g.Groups[i]
 				if child.UUID == merged.Meta.RecycleBin {
 					continue
 				}
-				if other, taken := names[child.Name]; taken {
-					t.Errorf("groups %s and %s stand on one path", other, child.UUID)
+				for _, other := range onPath[child.Name] {
+					if !apart[[2]snapshot.UUID{other.UUID, child.UUID}] || !wouldLoseAsOne(other, child) {
+						t.Errorf("groups %s and %s stand on one path", other.UUID, child.UUID)
+					}
 				}
-				names[child.Name] = child.UUID
+				onPath[child.Name] = append(onPath[child.Name], child)
 			}
 		})
 	})
+}
+
+// keptApart gives the pairs of groups the report says stay apart on one path, in both orders.
+func keptApart(events []merge.Event) map[[2]snapshot.UUID]bool {
+	pairs := map[[2]snapshot.UUID]bool{}
+	for _, event := range events {
+		if apart, ok := event.(merge.GroupsKeptApart); ok {
+			for _, a := range apart.Groups {
+				for _, b := range apart.Groups {
+					pairs[[2]snapshot.UUID{a, b}] = a != b
+				}
+			}
+		}
+	}
+	return pairs
+}
+
+// wouldLoseAsOne says that one group made of the two would lose what a person set on one of them,
+// in the words of docs/acceptance.md: a field set in both groups with another value in each, or an
+// item of custom data with the same key and another value. The notes, the icon, the expiry, the
+// sequence of Auto-Type, and whether Auto-Type and search are on are such fields. The standard
+// icon 48 with no custom icon is no icon a person set.
+func wouldLoseAsOne(a, b *snapshot.Group) bool {
+	differ := func(setInA, setInB, same bool) bool { return setInA && setInB && !same }
+	icon := func(g *snapshot.Group) bool { return g.IconID != 48 || !g.CustomIcon.IsZero() }
+	sameSwitch := func(x, y *bool) bool { return x != nil && y != nil && *x == *y }
+	if differ(a.Notes != "", b.Notes != "", a.Notes == b.Notes) ||
+		differ(icon(a), icon(b), a.IconID == b.IconID && a.CustomIcon == b.CustomIcon) ||
+		differ(a.Times.Expires, b.Times.Expires, a.Times.Expiry.Equal(b.Times.Expiry)) ||
+		differ(a.DefaultAutoTypeSequence != "", b.DefaultAutoTypeSequence != "", a.DefaultAutoTypeSequence == b.DefaultAutoTypeSequence) ||
+		differ(a.EnableAutoType != nil, b.EnableAutoType != nil, sameSwitch(a.EnableAutoType, b.EnableAutoType)) ||
+		differ(a.EnableSearching != nil, b.EnableSearching != nil, sameSwitch(a.EnableSearching, b.EnableSearching)) {
+		return true
+	}
+	for _, x := range a.CustomData {
+		for _, y := range b.CustomData {
+			if !x.IsService() && x.Key == y.Key && x.Value != y.Value {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // TestPropertyTheLimitsHoldTheHistory: the next edit of any entry cuts nothing, and no limit of a
