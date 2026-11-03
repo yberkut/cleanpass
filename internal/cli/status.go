@@ -1,18 +1,11 @@
 package cli
 
 import (
-	"cmp"
 	"crypto/sha256"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"reflect"
-	"runtime"
-	"slices"
-	"strings"
 	"time"
-	"unicode"
 
 	"github.com/yberkut/cleanpass/internal/merge"
 	"github.com/yberkut/cleanpass/internal/report"
@@ -60,7 +53,7 @@ func runStatus(env Env, args []string) int {
 		}
 		file.snap = snap
 	}
-	if _, err := judge(files, time.Now()); err != nil {
+	if _, err := findWhoHoldsAll(files, time.Now()); err != nil {
 		return fail(env, text.StatusFailed)
 	}
 	if err := writeFieldLosses(env.Stdout, files); err != nil {
@@ -103,7 +96,7 @@ func writeFieldLosses(w io.Writer, files []*distinctFile) error {
 	return nil
 }
 
-// verdict gives the exit code and the text after judge has run.
+// verdict gives the exit code and the text after findWhoHoldsAll has run.
 //
 // Exit code 1 means no merge is needed: a copy holds all that the others hold, so any
 // number of the others may lag, also in different ways. Exit code 2 means only a merge
@@ -116,8 +109,8 @@ func verdict(files []*distinctFile, args []string, firstPath string) (int, []str
 	return code, lines
 }
 
-// standing says how the copies stand to each other after judge has run, and what its exit code
-// is. The commands that use it decide what to offer next.
+// standing says how the copies stand to each other after findWhoHoldsAll has run, and what its
+// exit code is. The commands that use it decide what to offer next.
 func standing(files []*distinctFile) (int, []string) {
 	var ahead, behind []session.Copy
 	for _, file := range files {
@@ -144,55 +137,6 @@ func standing(files []*distinctFile) (int, []string) {
 		lines = append(lines, text.StatusDirection(ahead[0].Path, c.Path))
 	}
 	return exitLags, append(lines, text.StatusNoMergeNeeded)
-}
-
-// mergeCommand gives the command that merges the copies, ready to copy. It repeats the
-// arguments of this run as they came, so an option of a copy stays beside its file. After
-// -- every word is a file, so --output and any other option of the command go in front of it.
-func mergeCommand(args []string, firstPath string, options ...string) string {
-	at := slices.Index(args, "--")
-	if at < 0 {
-		at = len(args)
-	}
-	words := slices.Concat(
-		[]string{filepath.ToSlash(os.Args[0]), "merge"},
-		args[:at],
-		options,
-		[]string{"--output", freePath(firstPath)},
-		args[at:],
-	)
-	for i, word := range words {
-		words[i] = shellWord(word)
-	}
-	return strings.Join(words, " ")
-}
-
-// freePath gives a path for the result beside the first copy that nothing occupies yet.
-func freePath(firstPath string) string {
-	ext := filepath.Ext(firstPath)
-	stem := strings.TrimSuffix(firstPath, ext)
-	path := stem + "-merged" + ext
-	for n := 2; ; n++ {
-		if _, err := os.Lstat(path); err != nil {
-			return path
-		}
-		path = fmt.Sprintf("%s-merged-%d%s", stem, n, ext)
-	}
-}
-
-// shellWord quotes a word when a shell would change it. On Windows double quotes work in
-// cmd, PowerShell and Git Bash, and a file name cannot hold one.
-func shellWord(word string) string {
-	safe := func(r rune) bool {
-		return unicode.IsLetter(r) || unicode.IsDigit(r) || strings.ContainsRune("-_./:=+,@", r)
-	}
-	if word != "" && !strings.ContainsFunc(word, func(r rune) bool { return !safe(r) }) {
-		return word
-	}
-	if runtime.GOOS == "windows" {
-		return `"` + word + `"`
-	}
-	return "'" + strings.ReplaceAll(word, "'", `'\''`) + "'"
 }
 
 // distinctFile is one content among the input files, with the copies that hold it.
@@ -238,17 +182,16 @@ func distinctFiles(copies []session.Copy) ([]*distinctFile, string) {
 	return files, ""
 }
 
-
-// judge finds the files that already hold all that the copies hold together, and gives the merge
-// of all of them. The Merge Engine decides that, so a new rule of the engine counts here with no
-// change.
+// findWhoHoldsAll finds the files that already hold all that the copies hold together, and gives
+// the merge of all of them. The Merge Engine decides that, so a new rule of the engine counts here
+// with no change.
 //
 // A file holds all when a merge of all copies would bring it nothing:
 //   - no data: the merge of all copies holds the same as the merge of this file alone;
 //   - no decision: the merge of all copies asks nothing this file alone does not ask. A
 //     question both raise, such as two similar entries inside one file, is no difference
 //     between the copies. A question only the merge of all raises is one.
-func judge(files []*distinctFile, now time.Time) (*merge.Result, error) {
+func findWhoHoldsAll(files []*distinctFile, now time.Time) (*merge.Result, error) {
 	key := merge.NewKey()
 	run := func(files ...*distinctFile) (*merge.Result, error) {
 		input := merge.Input{Now: now, Key: key}
@@ -274,44 +217,6 @@ func judge(files []*distinctFile, now time.Time) (*merge.Result, error) {
 	return all, nil
 }
 
-// keepsMainCustomData says that the merge of all holds the main version of each entry of the
-// copy with the custom data it has here. If not, that version went into one with more, so the
-// copy lacks data it has in use.
-//
-// It looks at the main version of the copy and not at the one on top of the merge of this file:
-// with two versions of the same time, the key of the run can put an older edit there, and that
-// one may lack its custom data in the history, as KeePassXC writes it on each edit.
-func keepsMainCustomData(copy, merged *snapshot.Snapshot) bool {
-	kept := merged.Root.EntriesByUUID()
-	holds := true
-	copy.Root.Walk(func(g *snapshot.Group) {
-		for i := range g.Entries {
-			// The memory of an earlier merge can take an entry away: it went into another entry,
-			// or the human deleted it. Then there is nothing here to hold it against.
-			if e := kept[g.Entries[i].UUID]; e != nil {
-				holds = holds && holdsVersionWithCustomData(e, &g.Entries[i].EntryVersion)
-			}
-		}
-	})
-	return holds
-}
-
-func holdsVersionWithCustomData(e *snapshot.Entry, main *snapshot.EntryVersion) bool {
-	same := func(v *snapshot.EntryVersion) bool {
-		return v.Times.LastModification.Equal(main.Times.LastModification) &&
-			reflect.DeepEqual(plainCustomData(v.CustomData), plainCustomData(main.CustomData))
-	}
-	if same(&e.EntryVersion) {
-		return true
-	}
-	for i := range e.History {
-		if same(&e.History[i]) {
-			return true
-		}
-	}
-	return false
-}
-
 // asksNothingNew says that every question of the merge of all copies is also a question of
 // the merge of one file.
 func asksNothingNew(all, alone []merge.Question) bool {
@@ -325,113 +230,4 @@ func asksNothingNew(all, alone []merge.Question) bool {
 		}
 	}
 	return true
-}
-
-// holdings is what a merged copy holds, in a form where two merges can be compared. It
-// leaves out all that changes with no edit: the service data, the time stamps of changes,
-// the usage values, the state of the window of KeePassXC and the order inside a list.
-type holdings struct {
-	meta      snapshot.Meta
-	groups    map[snapshot.UUID]groupHolding
-	entries   map[snapshot.UUID]entryHolding
-	deletions map[snapshot.UUID]bool
-}
-
-type groupHolding struct {
-	fields snapshot.Group
-	parent snapshot.UUID
-}
-
-// entryHolding counts the versions of an entry instead of naming them. The engine alone
-// knows what makes two versions the same, and without decisions it loses none. So the
-// merge of all holds every version of the merge of one file, and the same count means the
-// same versions, apart from custom data: a version with less of it goes into one with more.
-//
-// In a history that is what KeePassXC writes on each edit, so it is no difference between the
-// copies. keepsMainCustomData looks at the main version of the copy.
-type entryHolding struct {
-	group    snapshot.UUID
-	versions int
-}
-
-func holdingsOf(merged *snapshot.Snapshot) holdings {
-	result := holdings{
-		meta:      metaFields(merged.Meta),
-		groups:    map[snapshot.UUID]groupHolding{},
-		entries:   map[snapshot.UUID]entryHolding{},
-		deletions: map[snapshot.UUID]bool{},
-	}
-	// All root groups are one group in a merge, whatever their UUIDs.
-	inTree := func(id snapshot.UUID) snapshot.UUID {
-		if id == merged.Root.UUID {
-			return snapshot.UUID{}
-		}
-		return id
-	}
-	parents := map[snapshot.UUID]snapshot.UUID{}
-	merged.Root.Walk(func(g *snapshot.Group) {
-		id := inTree(g.UUID)
-		result.groups[id] = groupHolding{fields: groupFields(g, id), parent: parents[g.UUID]}
-		for i := range g.Groups {
-			parents[g.Groups[i].UUID] = id
-		}
-		for i := range g.Entries {
-			e := &g.Entries[i]
-			result.entries[e.UUID] = entryHolding{group: id, versions: 1 + len(e.History)}
-		}
-	})
-	for i := range merged.Deletions {
-		result.deletions[merged.Deletions[i].UUID] = true
-	}
-	return result
-}
-
-func groupFields(g *snapshot.Group, id snapshot.UUID) snapshot.Group {
-	fields := *g
-	fields.UUID = id
-	fields.Entries, fields.Groups = nil, nil
-	fields.Times = snapshot.Times{Creation: g.Times.Creation, Expiry: g.Times.Expiry, Expires: g.Times.Expires}
-	fields.PreviousParentGroup = nil
-	fields.IsExpanded = false
-	fields.LastTopVisibleEntry = snapshot.UUID{}
-	fields.CustomData = plainCustomData(g.CustomData)
-	return fields
-}
-
-func metaFields(meta snapshot.Meta) snapshot.Meta {
-	meta.Generator = ""
-	for _, stamp := range []*time.Time{
-		&meta.SettingsChanged, &meta.DatabaseNameChanged, &meta.DatabaseDescriptionChanged, &meta.DefaultUserNameChanged,
-		&meta.MasterKeyChanged, &meta.RecycleBinChanged, &meta.EntryTemplatesGroupChanged,
-	} {
-		*stamp = time.Time{}
-	}
-	meta.LastSelectedGroup, meta.LastTopVisibleGroup = snapshot.UUID{}, snapshot.UUID{}
-	meta.CustomData = plainCustomData(meta.CustomData)
-	meta.CustomIcons = plainIcons(meta.CustomIcons)
-	return meta
-}
-
-// plainCustomData leaves the items a person or a plugin has set, sorted, without their time.
-func plainCustomData(items []snapshot.CustomDataItem) []snapshot.CustomDataItem {
-	var result []snapshot.CustomDataItem
-	for i := range items {
-		if !items[i].IsService() {
-			result = append(result, snapshot.CustomDataItem{Key: items[i].Key, Value: items[i].Value})
-		}
-	}
-	slices.SortFunc(result, func(a, b snapshot.CustomDataItem) int {
-		return cmp.Or(strings.Compare(a.Key, b.Key), strings.Compare(a.Value, b.Value))
-	})
-	return result
-}
-
-func plainIcons(icons []snapshot.CustomIcon) []snapshot.CustomIcon {
-	var result []snapshot.CustomIcon
-	for _, icon := range icons {
-		icon.LastModification = time.Time{}
-		result = append(result, icon)
-	}
-	slices.SortFunc(result, func(a, b snapshot.CustomIcon) int { return strings.Compare(a.UUID.String(), b.UUID.String()) })
-	return result
 }

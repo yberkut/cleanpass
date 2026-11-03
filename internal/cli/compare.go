@@ -46,7 +46,7 @@ func runCompare(env Env, args []string) int {
 	}
 	markFreshest(passports)
 
-	merged, err := judge(files, now)
+	merged, err := findWhoHoldsAll(files, now)
 	if err != nil {
 		return fail(env, text.StatusFailed)
 	}

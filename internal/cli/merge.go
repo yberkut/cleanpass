@@ -9,8 +9,7 @@ import (
 
 	"github.com/yberkut/cleanpass/internal/challenge"
 	"github.com/yberkut/cleanpass/internal/gateway"
-	// The name of the package is taken in this package: status has a function named judge.
-	keepassxc "github.com/yberkut/cleanpass/internal/judge"
+	"github.com/yberkut/cleanpass/internal/judge"
 	"github.com/yberkut/cleanpass/internal/lossaudit"
 	"github.com/yberkut/cleanpass/internal/merge"
 	"github.com/yberkut/cleanpass/internal/report"
@@ -344,7 +343,7 @@ func writeResult(env Env, output string, opened openedCopies, merged *snapshot.S
 // the person has to know that no one outside looked at the file.
 func outsideCheck(env Env, expected *snapshot.Snapshot, keys gateway.Credentials) func(temp string) error {
 	return func(temp string) error {
-		program, err := keepassxc.Find()
+		program, err := judge.Find()
 		if err != nil {
 			_, printErr := fmt.Fprintln(env.Stdout, describeMissingJudge(err))
 			return printErr
@@ -353,12 +352,12 @@ func outsideCheck(env Env, expected *snapshot.Snapshot, keys gateway.Credentials
 			return err
 		}
 		if keys.YubiKey != nil {
-			if _, err := fmt.Fprintln(env.Stderr, text.JudgeTouches(keepassxc.Touches(expected))); err != nil {
+			if _, err := fmt.Fprintln(env.Stderr, text.JudgeTouches(judge.Touches(expected))); err != nil {
 				return err
 			}
 		}
 		if err := program.Check(temp, expected, keys); err != nil {
-			if keys.YubiKey != nil && errors.Is(err, keepassxc.ErrCannotRead) {
+			if keys.YubiKey != nil && errors.Is(err, judge.ErrCannotRead) {
 				_, _ = fmt.Fprintln(env.Stderr, text.JudgeMaybeNoTouch)
 			}
 			return err
@@ -369,7 +368,7 @@ func outsideCheck(env Env, expected *snapshot.Snapshot, keys gateway.Credentials
 }
 
 func describeMissingJudge(err error) string {
-	var unusable *keepassxc.UnusableError
+	var unusable *judge.UnusableError
 	switch {
 	case !errors.As(err, &unusable):
 		return text.JudgeNotFound
@@ -393,11 +392,11 @@ func reportWriteError(env Env, output string, err error) int {
 func describeWriteError(output string, err error) string {
 	var changed *safewriter.InputChangedError
 	var readBack *gateway.ReadBackError
-	var judged *keepassxc.MismatchError
+	var judged *judge.MismatchError
 	switch {
 	case errors.As(err, &judged):
 		return text.JudgeDiffers(judged.Place)
-	case errors.Is(err, keepassxc.ErrCannotRead):
+	case errors.Is(err, judge.ErrCannotRead):
 		return text.JudgeCannotRead
 	case errors.Is(err, challenge.ErrNoResponse):
 		return text.MergeYubiKeyNoResponse
