@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yberkut/cleanpass/internal/lossaudit"
 	"github.com/yberkut/cleanpass/internal/merge"
 	"github.com/yberkut/cleanpass/internal/snapshot"
 )
@@ -256,6 +257,38 @@ func TestAnEditOfTheResultOfAMergeIsALagAgain(t *testing.T) {
 	wantNoQuestions(t, result)
 	wantVersions(t, onlyEntry(t, result.Merged), "newest", "old", "new")
 	wantCustomData(t, "the version before", &onlyEntry(t, result.Merged).History[1], "browser", "settings")
+}
+
+// The main version of a copy can lack custom data that a version of its own history holds, with
+// the same time and the same content: that version absorbs it, as the ticket says. KeePassXC then
+// edits the copy and puts the bare main version into the history. The bare version goes into the
+// larger one again, so the result holds the larger version with its custom data and the edit on
+// top, and Loss Audit agrees that nothing is gone. Without the larger version it sees the loss.
+func TestAnEditOfACopyWhoseMainVersionWentIntoItsOwnHistoryKeepsTheLargerVersion(t *testing.T) {
+	bare := version(hours(1), "same")
+	larger := withCustomData(version(hours(1), "same"), "browser", "settings")
+	old := database(entry(bare, larger))
+	edited := database(entry(version(hours(2), "new"), larger, bare))
+
+	for name, order := range map[string][]*snapshot.Snapshot{"old first": {old, edited}, "edited first": {edited, old}} {
+		t.Run(name, func(t *testing.T) {
+			result := mergeOf(t, order...)
+
+			wantNoQuestions(t, result)
+			merged := onlyEntry(t, result.Merged)
+			wantVersions(t, merged, "new", "same")
+			wantCustomData(t, "the old version", &merged.History[0], "browser", "settings")
+			copies := []*snapshot.Snapshot{old, edited}
+			if losses := lossaudit.Audit(lossaudit.Input{Copies: copies, Result: result.Merged}); len(losses) != 0 {
+				t.Errorf("losses = %+v, want none", losses)
+			}
+			merged.History[0].CustomData = nil
+			want := []lossaudit.Loss{{Kind: lossaudit.VersionLost, Object: mailID, Time: hours(1)}}
+			if losses := lossaudit.Audit(lossaudit.Input{Copies: copies, Result: result.Merged}); !reflect.DeepEqual(losses, want) {
+				t.Errorf("without the custom data, losses = %+v, want %+v", losses, want)
+			}
+		})
+	}
 }
 
 // The clock anomaly of ticket #4 with the new match: the history of the copy that went on lacks

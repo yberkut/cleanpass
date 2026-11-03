@@ -16,6 +16,8 @@ import (
 // TestPropertyAnEditAsKeePassXCDoesIsALag: take any copy and edit any entry the way KeePassXC
 // does, with the newest time: the history version lacks the custom data of the entry. The merge
 // of the two asks nothing about that entry, the edit is main, and the old version keeps its data.
+// The old main version may itself lack custom data that a version with its time in its own
+// history holds, and then that larger version stands for it, as the ticket says.
 func TestPropertyAnEditAsKeePassXCDoesIsALag(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := mergetest.Scenarios().Draw(t, "scenario")
@@ -60,7 +62,8 @@ func TestPropertyAnEditAsKeePassXCDoesIsALag(t *testing.T) {
 		if !merged.Times.LastModification.Equal(e.Times.LastModification) {
 			t.Errorf("entry %s: the main version has time %s, want the edit", e.UUID, merged.Times.LastModification)
 		}
-		if !idsOf(versionsOfEntry(merged))[identify(&before)] {
+		stands := func(v *snapshot.EntryVersion) bool { return identify(v) == identify(&before) || goesInto(&before, v) }
+		if !slices.ContainsFunc(versionsOfEntry(merged), stands) {
 			t.Errorf("entry %s lost the old version with its custom data", e.UUID)
 		}
 	})
