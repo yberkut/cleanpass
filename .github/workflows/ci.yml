@@ -40,7 +40,9 @@ jobs:
             keepassxc-file: KeePassXC-2.7.12-x86_64.AppImage
             keepassxc-sha256: 564fe8b751b9ef7aa057e4d3d0b2878db24eaa0f6b1c855c82e699ab0913ae49
             scenarios: 10000
-          - os: macos-26
+          # macos-26 got no runner in three runs ("The job was not acquired by Runner of
+          # type hosted even after multiple attempts"). macos-15 is arm64 too, with more runners.
+          - os: macos-15
             keepassxc-file: KeePassXC-2.7.12-arm64.dmg
             keepassxc-sha256: 65f4f63607180c0a15794b4a4068f85e99ed5391c87c1fb9312648f1b36fed40
             scenarios: 1000
