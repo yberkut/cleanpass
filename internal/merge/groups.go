@@ -85,7 +85,7 @@ func (m *merger) joinGroups() {
 		slices.SortFunc(states, func(a, b *groupState) int { return compareGroupVersions(&b.data, &a.data) })
 		state := &groupState{data: states[0].data, parent: states[0].parent}
 		for _, other := range states[1:] {
-			state.take(joinFields(state.data, other.data), other.data, other.parent)
+			state.take(joinFields(state.data, other.data), other.data, other.parent, m.root)
 		}
 		m.groups[id] = state
 	}
@@ -107,7 +107,7 @@ func (m *merger) seeGroup(units map[snapshot.UUID]*groupState, c *Copy, parent s
 	if state := units[unit]; state == nil {
 		units[unit] = &groupState{data: fields, parent: parent}
 	} else {
-		state.join(fields, parent)
+		state.join(fields, parent, m.root)
 	}
 	for i := range g.Groups {
 		m.seeGroup(units, c, id, &g.Groups[i])
@@ -115,24 +115,24 @@ func (m *merger) seeGroup(units map[snapshot.UUID]*groupState, c *Copy, parent s
 }
 
 // join takes in another version of the same group: the fields of the newest version, see
-// compareGroupVersions.
-func (s *groupState) join(other snapshot.Group, parent snapshot.UUID) {
+// compareGroupVersions. root is the root group of the result.
+func (s *groupState) join(other snapshot.Group, parent, root snapshot.UUID) {
 	fields := s.data
 	if compareGroupVersions(&other, &s.data) > 0 {
 		fields = other
 	}
-	s.take(fields, other, parent)
+	s.take(fields, other, parent, root)
 }
 
 // take sets the fields, and of s and other it keeps the parent of the newest move. Usage joins
-// as a maximum.
-func (s *groupState) take(fields, other snapshot.Group, parent snapshot.UUID) {
+// as a maximum. root is the root group of the result.
+func (s *groupState) take(fields, other snapshot.Group, parent, root snapshot.UUID) {
 	fields.Times.LastAccess = later(s.data.Times.LastAccess, other.Times.LastAccess)
 	fields.Times.UsageCount = max(s.data.Times.UsageCount, other.Times.UsageCount)
 
 	moved := cmp.Or(
 		other.Times.LocationChanged.Compare(s.data.Times.LocationChanged),
-		compareUUIDs(parent, s.parent),
+		compareParents(parent, s.parent, root),
 		comparePointers(other.PreviousParentGroup, s.data.PreviousParentGroup),
 	)
 	if moved > 0 {
@@ -142,6 +142,22 @@ func (s *groupState) take(fields, other snapshot.Group, parent snapshot.UUID) {
 		fields.Times.LocationChanged, fields.PreviousParentGroup = s.data.Times.LocationChanged, s.data.PreviousParentGroup
 	}
 	s.data = fields
+}
+
+// compareParents orders the parents of two moves with the same time: the root wins, and then the
+// larger UUID. A merge puts a group under the root to break a cycle, and the group keeps the time of the
+// move it undid, see breakCycles. An old copy can hold another move of that group with the same
+// time, and if that move won, the next merge with that copy would change the tree again.
+func compareParents(a, b, root snapshot.UUID) int {
+	switch {
+	case a == b:
+		return 0
+	case a == root:
+		return 1
+	case b == root:
+		return -1
+	}
+	return compareUUIDs(a, b)
 }
 
 func later(a, b time.Time) time.Time {
@@ -179,7 +195,8 @@ func groupContent(g *snapshot.Group) []byte {
 // breakCycles gives each group a way up to the root. Each copy holds a tree, but the newest move
 // of each group can come from another copy, and together they can put groups under each other.
 // In such a cycle the newest moves hold, as they do everywhere, so the oldest move gives way and
-// its group goes under the root. It says which groups went there, sorted.
+// its group goes under the root. The group keeps the time of that move, and the root wins over
+// any other place with that time, see compareParents. It says which groups went there, sorted.
 func (m *merger) breakCycles() []snapshot.UUID {
 	var broken []snapshot.UUID
 	const onThisWay, done = 1, 2

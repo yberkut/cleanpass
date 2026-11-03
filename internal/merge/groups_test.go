@@ -124,6 +124,34 @@ func TestABrokenCycleStaysBrokenInTheNextMerge(t *testing.T) {
 	}
 }
 
+// The group that gives way keeps the time of its move, and an old copy can hold another move of
+// that group with the same time. Here Work went under Home in one copy and under Keys in the
+// other, both at 5. Keys wins by its UUID, Keys then lies under Work from 9, and Work goes under
+// the root. The next merge with the first copy must not take Home over the root: the root holds
+// whatever its UUID, since the tool generates the root UUIDs too.
+func TestABrokenCycleStaysBrokenWhenAnOldCopyMovedTheGroupElsewhereAtTheSameTime(t *testing.T) {
+	home, work, keys := groupA, groupB, groupC
+	for name, root := range map[string]snapshot.UUID{"the smallest UUID": {15: 0x01}, "the largest UUID": {15: 0xFF}} {
+		t.Run("a root with "+name, func(t *testing.T) {
+			withRoot := func(s *snapshot.Snapshot) *snapshot.Snapshot {
+				s.Root.UUID = root
+				return s
+			}
+			first := withRoot(tree(node(home, "Home", 1, node(work, "Work", 5, node(keys, "Keys", 9)))))
+			second := withRoot(tree(node(home, "Home", 1), node(keys, "Keys", 1, node(work, "Work", 5))))
+			merged := mergeOf(t, first, second).Merged
+			wantShape(t, merged, "/a1", "/a2", "/a2/a3")
+
+			for _, old := range []*snapshot.Snapshot{first, second} {
+				inAnyOrder(t, []*snapshot.Snapshot{merged, old}, func(t *testing.T, again *snapshot.Snapshot) {
+					wantShape(t, again, "/a1", "/a2", "/a2/a3")
+					wantSameTree(t, again, merged)
+				})
+			}
+		})
+	}
+}
+
 func wantSameTree(t *testing.T, got, want *snapshot.Snapshot) {
 	t.Helper()
 	if !reflect.DeepEqual(got.Root, want.Root) {
