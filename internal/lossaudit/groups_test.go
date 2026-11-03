@@ -33,10 +33,6 @@ func groupFieldsLost(id snapshot.UUID) lossaudit.Loss {
 	return lossaudit.Loss{Kind: lossaudit.GroupFieldsLost, Object: id}
 }
 
-func mergedGroups(from, to snapshot.UUID) lossaudit.Allowed {
-	return lossaudit.Allowed{MergedGroups: map[snapshot.UUID]snapshot.UUID{from: to}}
-}
-
 func TestAKeptGroupIsNoLoss(t *testing.T) {
 	work := group(workID, hours(1), "notes")
 
@@ -101,60 +97,204 @@ func TestTheRootGroupKeepsTheFieldsOfItsNewestVersion(t *testing.T) {
 	wantLosses(t, audit(first, first, second), groupFieldsLost(rootID))
 }
 
-func TestAGroupMergedByPathLivesOnInTheSurvivor(t *testing.T) {
+// named gives the group another name, and with it another path.
+func named(g snapshot.Group, name string) snapshot.Group {
+	g.Name = name
+	return g
+}
+
+// The spec joins groups with the same path. The audit finds the path by itself, from the names in
+// the copies and in the result, and takes the word of no engine for it.
+func TestAGroupOnTheSamePathLivesOnInTheGroupThere(t *testing.T) {
 	input := withGroups(group(workID, hours(1), ""), group(homeID, hours(1), ""))
 
-	got := allowedAudit(mergedGroups(homeID, workID), withGroups(group(workID, hours(1), "")), input)
-
-	wantLosses(t, got)
+	wantLosses(t, audit(withGroups(group(workID, hours(1), "")), input))
+	wantLosses(t, audit(withGroups(group(homeID, hours(1), "")), input))
 }
 
-func TestAGroupMergedByPathNeedsItsSurvivor(t *testing.T) {
+func TestAGroupGoneFromItsPathIsALoss(t *testing.T) {
 	input := withGroups(group(homeID, hours(1), ""))
 
-	wantLosses(t, allowedAudit(mergedGroups(homeID, workID), withGroups(), input), groupLost(workID))
-	wantLosses(t, allowedAudit(mergedGroups(homeID, workID), input, input), groupLost(workID))
+	wantLosses(t, audit(withGroups(), input), groupLost(homeID))
+	wantLosses(t, audit(withGroups(named(group(workID, hours(1), ""), "Other")), input), groupLost(homeID))
 }
 
-func TestMergingOneGroupDoesNotCoverAnother(t *testing.T) {
+func TestTheSameNameUnderAnotherParentIsAnotherPath(t *testing.T) {
+	inWork, inHome := group(keysID, hours(1), ""), group(snapshot.UUID{15: 0xA4}, hours(1), "")
+	work, home := named(group(workID, hours(1), ""), "Work"), named(group(homeID, hours(1), ""), "Home")
+	work.Groups, home.Groups = []snapshot.Group{inWork}, []snapshot.Group{inHome}
+	keptHome := home
+	keptHome.Groups = nil
+
+	wantLosses(t, audit(withGroups(work, keptHome), withGroups(work, home)), groupLost(inHome.UUID))
+}
+
+func TestJoiningOneGroupDoesNotCoverAnother(t *testing.T) {
+	input := withGroups(group(workID, hours(1), ""), group(homeID, hours(1), ""), named(group(keysID, hours(1), ""), "Keys"))
+
+	wantLosses(t, audit(withGroups(group(workID, hours(1), "")), input), groupLost(keysID))
+}
+
+func TestGroupsOnOnePathJoinThroughAnyNumber(t *testing.T) {
 	input := withGroups(group(workID, hours(1), ""), group(homeID, hours(1), ""), group(keysID, hours(1), ""))
 
-	got := allowedAudit(mergedGroups(homeID, workID), withGroups(group(workID, hours(1), "")), input)
-
-	wantLosses(t, got, groupLost(keysID))
+	wantLosses(t, audit(withGroups(group(keysID, hours(1), "")), input))
 }
 
-// Merged groups are one group, so the survivor shows the newest fields of any of them.
-func TestGroupsMergedByPathKeepTheNewestFields(t *testing.T) {
+// A group joined by its path must hold what each of the groups holds. Its time is the newest one.
+func TestAGroupJoinedByPathKeepsWhatEachGroupHolds(t *testing.T) {
+	older, newer := group(workID, hours(1), "old"), group(homeID, hours(2), "")
+	newer.Tags = "tag"
+	input := withGroups(older, newer)
+	joined := group(workID, hours(2), "old")
+	joined.Tags = "tag"
+	withoutNotes, withoutTags := joined, joined
+	withoutNotes.Notes, withoutTags.Tags = "", ""
+
+	wantLosses(t, audit(withGroups(joined), input))
+	wantLosses(t, audit(withGroups(withoutNotes), input), groupFieldsLost(workID))
+	wantLosses(t, audit(withGroups(withoutTags), input), groupFieldsLost(homeID))
+}
+
+// Two groups with different notes cannot be one group without a loss.
+func TestGroupsWithDifferentNotesCannotJoin(t *testing.T) {
 	input := withGroups(group(workID, hours(1), "old"), group(homeID, hours(2), "new"))
 
-	wantLosses(t, allowedAudit(mergedGroups(homeID, workID), withGroups(group(workID, hours(2), "new")), input))
-	wantLosses(t, allowedAudit(mergedGroups(homeID, workID), withGroups(group(workID, hours(1), "old")), input), groupFieldsLost(workID))
+	wantLosses(t, audit(withGroups(group(workID, hours(2), "new")), input), groupFieldsLost(workID))
+	wantLosses(t, audit(withGroups(group(workID, hours(1), "old"), group(homeID, hours(2), "new")), input))
 }
 
-func TestGroupsMergeThroughAChain(t *testing.T) {
-	input := withGroups(group(workID, hours(1), ""), group(homeID, hours(1), ""), group(keysID, hours(1), ""))
-	chain := lossaudit.Allowed{MergedGroups: map[snapshot.UUID]snapshot.UUID{homeID: workID, workID: keysID}}
-
-	wantLosses(t, allowedAudit(chain, withGroups(group(keysID, hours(1), "")), input))
+// A joinedChange is one way a joined group can differ from one of the groups it is made of.
+type joinedChange struct {
+	name  string
+	apply func(g *snapshot.Group)
 }
 
-func TestGroupsMergedIntoARootGroupLiveOnInTheRoot(t *testing.T) {
-	input := withGroups(group(homeID, hours(1), ""))
-	input.Root.Times.LastModification = hours(2)
-
-	wantLosses(t, allowedAudit(mergedGroups(homeID, rootID), database(), input))
+// lostWhenJoined lose what a person set on a group that another group took in.
+var lostWhenJoined = []joinedChange{
+	{"notes", func(g *snapshot.Group) { g.Notes = "other" }},
+	{"icon", func(g *snapshot.Group) { g.IconID = 9 }},
+	{"custom icon", func(g *snapshot.Group) { g.CustomIcon = snapshot.UUID{9} }},
+	{"expiry", func(g *snapshot.Group) { g.Times.Expires, g.Times.Expiry = true, hours(99) }},
+	{"auto-type sequence", func(g *snapshot.Group) { g.DefaultAutoTypeSequence = "{OTHER}" }},
+	{"auto-type setting", func(g *snapshot.Group) { g.EnableAutoType = nil }},
+	{"search setting", func(g *snapshot.Group) { g.EnableSearching = yes() }},
+	{"tag", func(g *snapshot.Group) { g.Tags = "alpha" }},
+	{"custom data value", func(g *snapshot.Group) { g.CustomData[0].Value = "other" }},
+	{"custom data removed", func(g *snapshot.Group) { g.CustomData = g.CustomData[1:] }},
 }
 
-func TestALoopOfMergedGroupsHidesNoLoss(t *testing.T) {
-	input := withGroups(group(workID, hours(1), ""), group(homeID, hours(1), ""))
-	loop := lossaudit.Allowed{MergedGroups: map[snapshot.UUID]snapshot.UUID{workID: homeID, homeID: workID}}
+// keptWhenJoined lose nothing: what the other group adds, and what is no setting of a person.
+var keptWhenJoined = []joinedChange{
+	{"creation", func(g *snapshot.Group) { g.Times.Creation = hours(-99) }},
+	{"time of the change", func(g *snapshot.Group) { g.Times.LastModification = hours(50) }},
+	{"more custom data", func(g *snapshot.Group) {
+		g.CustomData = append(g.CustomData, snapshot.CustomDataItem{Key: "added", Value: "1"})
+	}},
+}
 
-	wantLosses(t, allowedAudit(loop, withGroups(), input), groupLost(workID), groupLost(homeID))
+func TestAJoinedGroupLosesNoPartOfEither(t *testing.T) {
+	// An expiry that is on, so that its time counts.
+	full := func() snapshot.Group {
+		g := fullGroup()
+		g.Times.Expires = true
+		return g
+	}
+	plain := group(homeID, hours(5), "")
+	plain.IconID = 48
+	plain.Name = fullGroup().Name
+	for _, c := range lostWhenJoined {
+		t.Run(c.name, func(t *testing.T) {
+			changed := full()
+			c.apply(&changed)
+
+			wantLosses(t, audit(withGroups(changed), withGroups(full(), plain)), groupFieldsLost(workID))
+		})
+	}
+	for _, c := range keptWhenJoined {
+		t.Run(c.name, func(t *testing.T) {
+			changed := full()
+			c.apply(&changed)
+
+			wantLosses(t, audit(withGroups(changed), withGroups(full(), plain)))
+		})
+	}
+}
+
+// A field the group it took in leaves empty is no field of that group: the standard icon of a
+// group with no custom icon, an expiry that is off, and a setting that comes from the parent.
+// A joined group holds nothing that none of its groups held: such a value belongs to another
+// group, which has lost it.
+func TestAJoinedGroupHoldsNothingFromNowhere(t *testing.T) {
+	input := withGroups(group(workID, hours(1), ""), group(homeID, hours(2), ""))
+	notes, tags := group(workID, hours(2), "from another group"), group(workID, hours(2), "")
+	tags.Tags = "alien"
+
+	wantLosses(t, audit(withGroups(notes), input), groupFieldsLost(workID))
+	wantLosses(t, audit(withGroups(tags), input), groupFieldsLost(workID))
+}
+
+func TestAnEmptyFieldOfAJoinedGroupIsNoLoss(t *testing.T) {
+	plain := group(homeID, hours(5), "")
+	plain.IconID, plain.Times.Expiry = 48, hours(7)
+	result := fullGroup()
+	result.Times.Expires, result.Times.Expiry = false, hours(1)
+
+	wantLosses(t, audit(withGroups(result), withGroups(result, plain)))
+}
+
+// Of the versions of a group with one time, the one that holds all the others has to stay, or
+// what only it holds is gone. Without such a version, any of them will do.
+func TestOfVersionsWithOneTimeTheOneThatHoldsTheOthersMustStay(t *testing.T) {
+	rich, poor := group(workID, hours(1), "notes"), group(workID, hours(1), "")
+	rich.Tags = "tag"
+
+	wantLosses(t, audit(withGroups(rich), withGroups(rich), withGroups(poor)))
+	wantLosses(t, audit(withGroups(poor), withGroups(rich), withGroups(poor)), groupFieldsLost(workID))
+}
+
+// rememberGroups is a copy with the memory that an earlier merge joined these groups.
+func rememberGroups(s *snapshot.Snapshot, a, b snapshot.UUID) *snapshot.Snapshot {
+	s.Meta.CustomData = append(s.Meta.CustomData, snapshot.CustomDataItem{Key: "cleanpass/groups/" + a.String() + "/" + b.String(), Value: hours(100).Format(time.RFC3339Nano)})
+	return s
+}
+
+// The groups an earlier merge joined are versions of one group, wherever they stand by now. The
+// audit reads that from the copies: the newest version has to stay.
+func TestGroupsAnEarlierMergeJoinedAreOneGroup(t *testing.T) {
+	old := withGroups(named(group(homeID, hours(1), "old"), "Old name"))
+	remembered := func(g snapshot.Group) *snapshot.Snapshot { return rememberGroups(withGroups(g), workID, homeID) }
+	memory := remembered(group(workID, hours(2), "new"))
+
+	wantLosses(t, audit(remembered(group(workID, hours(2), "new")), memory, old))
+	wantLosses(t, audit(remembered(group(workID, hours(1), "old")), memory, old), groupFieldsLost(workID))
+	wantLosses(t, audit(withGroups(group(workID, hours(2), "new")), withGroups(group(workID, hours(2), "new")), old), groupLost(homeID))
+	wantLosses(t, audit(remembered(group(workID, hours(2), "new")), old), groupLost(homeID))
+}
+
+// All recycle bins are one group, whatever their names and places.
+func TestAllBinsAreOneGroup(t *testing.T) {
+	first, second := withGroups(named(group(workID, hours(1), ""), "Recycle Bin")), withGroups(named(group(homeID, hours(2), ""), "Кошик"))
+	first.Meta.RecycleBin, second.Meta.RecycleBin = workID, homeID
+	result := withGroups(named(group(workID, hours(2), ""), "Кошик"))
+	result.Meta.RecycleBin = workID
+
+	wantLosses(t, audit(result, first, second))
+	second.Meta.RecycleBin = snapshot.UUID{}
+	wantLosses(t, audit(first, first, second), groupLost(homeID))
+}
+
+// The bin joins no plain group with its name: what lies in that group is alive.
+func TestAPlainGroupDoesNotJoinTheBin(t *testing.T) {
+	bin := withGroups(named(group(workID, hours(1), ""), "Bin"))
+	bin.Meta.RecycleBin = workID
+	plain := withGroups(named(group(homeID, hours(1), ""), "Bin"))
+
+	wantLosses(t, audit(bin, bin, plain), groupLost(homeID))
 }
 
 func TestAGroupTheHumanDeletedIsNoLoss(t *testing.T) {
-	input := withGroups(group(workID, hours(1), ""), group(homeID, hours(1), ""))
+	input := withGroups(named(group(workID, hours(1), ""), "Work"), group(homeID, hours(1), ""))
 
 	got := allowedAudit(lossaudit.Allowed{Deleted: []snapshot.UUID{workID}}, withGroups(group(homeID, hours(1), "")), input)
 

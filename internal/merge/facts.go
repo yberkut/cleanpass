@@ -26,6 +26,8 @@ type Facts struct {
 	PairsNotMerged []PairNotMerged
 	// GroupsJoined holds the groups that took other groups in.
 	GroupsJoined []GroupsJoined
+	// GroupsKeptApart holds the groups on one path that stay apart, so nothing is lost.
+	GroupsKeptApart []GroupsKeptApart
 	// GroupCycles holds the groups that left their parent to break a cycle.
 	GroupCycles []GroupCycleBroken
 	// Unknown counts the events and questions of a kind Facts does not name yet. The Report says
@@ -50,6 +52,8 @@ func (r *Result) Facts() Facts {
 			facts.PairsNotMerged = append(facts.PairsNotMerged, e)
 		case GroupsJoined:
 			facts.GroupsJoined = append(facts.GroupsJoined, e)
+		case GroupsKeptApart:
+			facts.GroupsKeptApart = append(facts.GroupsKeptApart, e)
 		case GroupCycleBroken:
 			facts.GroupCycles = append(facts.GroupCycles, e)
 		default:

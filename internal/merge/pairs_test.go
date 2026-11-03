@@ -793,6 +793,38 @@ func TestAnAnswerAboutOnePairBeatsTheBulkAnswer(t *testing.T) {
 	})
 }
 
+// The Loss Audit learns from the decisions alone which entries may become one, not from the
+// result. An answer about one pair beats the answer about all pairs here too.
+func TestTheDecisionsNameThePairsTheyLetMerge(t *testing.T) {
+	in, pairs := bulkInput()
+	questions := mustRun(t, in).Questions
+	asked := pairQuestions(mustRun(t, in))
+	bulk, _ := theBulkQuestion(t, mustRun(t, in))
+	same, other := asked[pairs["the same"]].ID, asked[pairs["another password"]].ID
+
+	for name, tc := range map[string]struct {
+		decisions []merge.Decision
+		want      [][2]snapshot.UUID
+	}{
+		"no answer":           {nil, nil},
+		"merge one pair":      {[]merge.Decision{{Question: other, Choice: 1}}, [][2]snapshot.UUID{pairs["another password"]}},
+		"keep one pair":       {[]merge.Decision{{Question: other, Choice: 0}}, nil},
+		"merge all the same":  {[]merge.Decision{{Question: bulk.ID, Choice: 1}}, [][2]snapshot.UUID{pairs["the same"]}},
+		"no to all the same":  {[]merge.Decision{{Question: bulk.ID, Choice: 0}}, nil},
+		"one pair beats all":  {[]merge.Decision{{Question: bulk.ID, Choice: 1}, {Question: same, Choice: 0}}, nil},
+		"both kinds together": {[]merge.Decision{{Question: bulk.ID, Choice: 1}, {Question: other, Choice: 1}}, [][2]snapshot.UUID{pairs["another password"], pairs["the same"]}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := merge.PairsToMerge(questions, tc.decisions)
+			slices.SortFunc(got, func(a, b [2]snapshot.UUID) int { return bytes.Compare(a[0][:], b[0][:]) })
+			slices.SortFunc(tc.want, func(a, b [2]snapshot.UUID) int { return bytes.Compare(a[0][:], b[0][:]) })
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("pairs = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestNoPairWithTheSameContentGivesNoBulkQuestion(t *testing.T) {
 	result := mergeOf(t,
 		database(account(firstID, "Mail", "user", "", "one")),

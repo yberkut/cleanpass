@@ -86,7 +86,7 @@ func runMerge(env Env, args []string) int {
 	}
 
 	keys := opened.keysFor(choice)
-	if err := writeResult(env, output, opened, result.Merged, allowedBy(result, answers.Decisions), keys); err != nil {
+	if err := writeResult(env, output, opened, result.Merged, allowedBy(asked.Questions, answers.Decisions), keys); err != nil {
 		return reportWriteError(env, output, err)
 	}
 	if err := writeMergeEnd(env, output, keys, answers, result, input); err != nil {
@@ -289,19 +289,12 @@ type lossesError struct{ losses []lossaudit.Loss }
 
 func (e *lossesError) Error() string { return "the audit found losses" }
 
-// allowedBy gives what the merge lets leave its place: the groups on one path, the entries a merge
-// has taken into others, now or earlier, and the entries the human deleted in this run. An entry
-// the human deleted in an earlier merge is not here: the Loss Audit reads that from the copies by
-// itself. The deletions of this run come from the answers and not from the engine, so a bug in the
-// engine cannot allow itself to lose an entry.
-func allowedBy(result *merge.Result, decisions []merge.Decision) lossaudit.Allowed {
-	allowed := lossaudit.Allowed{
-		Absorbed:     make(map[snapshot.UUID]snapshot.UUID, len(result.Absorbed)),
-		MergedGroups: result.MergedGroups,
-	}
-	for _, a := range result.Absorbed {
-		allowed.Absorbed[a.Absorbed] = a.Into
-	}
+// allowedBy gives the decisions of this run that let data leave its place: the entries the human
+// deleted and the pairs the human merged. It reads the answers and the questions the human saw,
+// never the result, so a bug in the engine cannot allow itself a loss. What earlier merges
+// decided, and which groups stand on one path, the Loss Audit finds in the copies by itself.
+func allowedBy(questions []merge.Question, decisions []merge.Decision) lossaudit.Allowed {
+	allowed := lossaudit.Allowed{MergedPairs: merge.PairsToMerge(questions, decisions)}
 	for _, d := range decisions {
 		if id, deletes := d.DeletesEntry(); deletes {
 			allowed.Deleted = append(allowed.Deleted, id)

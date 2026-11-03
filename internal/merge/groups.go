@@ -1,7 +1,6 @@
 package merge
 
 import (
-	"bytes"
 	"cmp"
 	"maps"
 	"slices"
@@ -63,18 +62,36 @@ func mergeGroups(m *merger) {
 		m.tell(GroupCycleBroken{Group: id, Name: m.groups[id].data.Name})
 	}
 	m.tellNewJoins()
+	m.tellGroupsKeptApart()
 }
 
-// joinGroups makes one state for each group of the result out of all copies.
+// joinGroups makes one state for each group of the result out of all copies. The versions of
+// one group are those of one UUID, of all bins and of the groups an earlier merge has joined:
+// the newest of them holds. The groups this merge joins by their path lose nothing, see
+// joinable.
 func (m *merger) joinGroups() {
-	m.groups = map[snapshot.UUID]*groupState{}
+	units := map[snapshot.UUID]*groupState{}
 	for i := range m.in.Copies {
 		c := &m.in.Copies[i]
-		m.seeGroup(c, snapshot.UUID{}, &c.Snapshot.Root)
+		m.seeGroup(units, c, snapshot.UUID{}, &c.Snapshot.Root)
+	}
+	joined := map[snapshot.UUID][]*groupState{}
+	for unit, state := range units {
+		id := m.groupID(unit)
+		joined[id] = append(joined[id], state)
+	}
+	m.groups = make(map[snapshot.UUID]*groupState, len(joined))
+	for id, states := range joined {
+		slices.SortFunc(states, func(a, b *groupState) int { return compareGroupVersions(&b.data, &a.data) })
+		state := &groupState{data: states[0].data, parent: states[0].parent}
+		for _, other := range states[1:] {
+			state.take(joinFields(state.data, other.data), other.data, other.parent)
+		}
+		m.groups[id] = state
 	}
 }
 
-func (m *merger) seeGroup(c *Copy, parent snapshot.UUID, g *snapshot.Group) {
+func (m *merger) seeGroup(units map[snapshot.UUID]*groupState, c *Copy, parent snapshot.UUID, g *snapshot.Group) {
 	id := m.groupID(g.UUID)
 	fields := *g
 	fields.UUID = id
@@ -86,26 +103,32 @@ func (m *merger) seeGroup(c *Copy, parent snapshot.UUID, g *snapshot.Group) {
 		parent, fields.Times.LocationChanged, fields.PreviousParentGroup = snapshot.UUID{}, time.Time{}, nil
 	}
 
-	state := m.groups[id]
-	if state == nil {
-		m.groups[id] = &groupState{data: fields, parent: parent}
+	unit := m.unitID(g.UUID)
+	if state := units[unit]; state == nil {
+		units[unit] = &groupState{data: fields, parent: parent}
 	} else {
 		state.join(fields, parent)
 	}
 	for i := range g.Groups {
-		m.seeGroup(c, id, &g.Groups[i])
+		m.seeGroup(units, c, id, &g.Groups[i])
 	}
 }
 
-// join takes the fields of the newest version and the parent of the newest move. Usage
-// joins as a maximum.
+// join takes in another version of the same group: the fields of the newest version, see
+// compareGroupVersions.
 func (s *groupState) join(other snapshot.Group, parent snapshot.UUID) {
-	joined := s.data
+	fields := s.data
 	if compareGroupVersions(&other, &s.data) > 0 {
-		joined = other
+		fields = other
 	}
-	joined.Times.LastAccess = later(s.data.Times.LastAccess, other.Times.LastAccess)
-	joined.Times.UsageCount = max(s.data.Times.UsageCount, other.Times.UsageCount)
+	s.take(fields, other, parent)
+}
+
+// take sets the fields, and of s and other it keeps the parent of the newest move. Usage joins
+// as a maximum.
+func (s *groupState) take(fields, other snapshot.Group, parent snapshot.UUID) {
+	fields.Times.LastAccess = later(s.data.Times.LastAccess, other.Times.LastAccess)
+	fields.Times.UsageCount = max(s.data.Times.UsageCount, other.Times.UsageCount)
 
 	moved := cmp.Or(
 		other.Times.LocationChanged.Compare(s.data.Times.LocationChanged),
@@ -114,11 +137,11 @@ func (s *groupState) join(other snapshot.Group, parent snapshot.UUID) {
 	)
 	if moved > 0 {
 		s.parent = parent
-		joined.Times.LocationChanged, joined.PreviousParentGroup = other.Times.LocationChanged, other.PreviousParentGroup
+		fields.Times.LocationChanged, fields.PreviousParentGroup = other.Times.LocationChanged, other.PreviousParentGroup
 	} else {
-		joined.Times.LocationChanged, joined.PreviousParentGroup = s.data.Times.LocationChanged, s.data.PreviousParentGroup
+		fields.Times.LocationChanged, fields.PreviousParentGroup = s.data.Times.LocationChanged, s.data.PreviousParentGroup
 	}
-	s.data = joined
+	s.data = fields
 }
 
 func later(a, b time.Time) time.Time {
@@ -126,10 +149,6 @@ func later(a, b time.Time) time.Time {
 		return b
 	}
 	return a
-}
-
-func compareGroupVersions(a, b *snapshot.Group) int {
-	return cmp.Or(a.Times.LastModification.Compare(b.Times.LastModification), bytes.Compare(groupContent(a), groupContent(b)))
 }
 
 // groupContent encodes the fields of a group, only to tell two versions with the same time
@@ -203,30 +222,33 @@ func (m *merger) keepDeletedGroupsInTheBin() {
 	}
 }
 
-// joinSamePaths joins each two groups with the same name under the same parent: all paths above
-// them are equal once the groups higher up are one. The groups a join changes come back in the
-// next round. The bin joins no plain group: what lies in such a group is alive, and it would
-// count as deleted. It says whether it joined anything.
+// joinSamePaths joins the groups with the same name under the same parent: all paths above them
+// are equal once the groups higher up are one. A group joins the first group on its path that
+// it is joinable with, by UUID, and otherwise stays apart. The groups a join changes come back
+// in the next round. It says whether it joined anything.
 func (m *merger) joinSamePaths() bool {
-	type place struct {
-		parent snapshot.UUID
-		name   string
-		isBin  bool
+	type family struct {
+		head snapshot.UUID
+		// fields is what the family has become so far.
+		fields snapshot.Group
 	}
 	joined := false
-	first := map[place]snapshot.UUID{}
+	onPlace := map[place][]*family{}
 	for _, id := range slices.SortedFunc(maps.Keys(m.groups), compareUUIDs) {
 		if id == m.root {
 			continue
 		}
 		state := m.groups[id]
-		at := place{parent: state.parent, name: state.data.Name, isBin: id == m.bins.result}
-		if other, taken := first[at]; taken {
-			m.sameGroups.join(other, id)
-			joined = true
-		} else {
-			first[at] = id
+		at := m.placeOf(id)
+		i := slices.IndexFunc(onPlace[at], func(f *family) bool { return joinable(&f.fields, &state.data) })
+		if i < 0 {
+			onPlace[at] = append(onPlace[at], &family{head: id, fields: state.data})
+			continue
 		}
+		f := onPlace[at][i]
+		m.sameGroups.join(f.head, id)
+		f.fields = joinFields(f.fields, state.data)
+		joined = true
 	}
 	return joined
 }
@@ -252,6 +274,15 @@ func (m *merger) groupID(id snapshot.UUID) snapshot.UUID {
 		return m.root
 	}
 	return m.sameGroups.head(id)
+}
+
+// unitID gives the UUID of the group whose versions this group's versions are: the same UUID,
+// a bin, or a group an earlier merge joined. The newest of them holds.
+func (m *merger) unitID(id snapshot.UUID) snapshot.UUID {
+	if m.roots[id] {
+		return m.root
+	}
+	return m.sameUnits.head(id)
 }
 
 // buildTree gives the merged tree: every group under its parent, every entry in its group. After

@@ -71,10 +71,9 @@ func TestOtherKeysOfTheMemoryLetNothingGo(t *testing.T) {
 // An entry that went into another one goes with it: the human saw its versions there.
 func TestTheMemoryCoversAnEntryThatWentIntoTheDeletedOne(t *testing.T) {
 	old := database(entry(mailID, version(hours(2), "absorbed")))
-	memory := remembering(bankID, hours(2))
-	allowed := lossaudit.Allowed{Absorbed: map[snapshot.UUID]snapshot.UUID{mailID: bankID}}
+	memory := rememberPair(remembering(bankID, hours(2)), bankID, mailID)
 
-	wantLosses(t, allowedAudit(allowed, memory, memory, old))
+	wantLosses(t, audit(memory, memory, old))
 }
 
 // The bytes of a version that went are not needed. The bytes of the same entry's kept version are.

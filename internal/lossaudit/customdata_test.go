@@ -96,7 +96,7 @@ func TestLargerCustomDataCountsUnderTheEntryThatTookTheVersions(t *testing.T) {
 	got := lossaudit.Audit(lossaudit.Input{
 		Copies:  []*snapshot.Snapshot{input},
 		Result:  result,
-		Allowed: lossaudit.Allowed{Absorbed: map[snapshot.UUID]snapshot.UUID{mailID: bankID}},
+		Allowed: pair(mailID, bankID),
 	})
 
 	wantLosses(t, got)

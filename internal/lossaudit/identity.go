@@ -97,9 +97,50 @@ func identityWithoutCustomData(v *snapshot.EntryVersion) string {
 // leaves out usage, the place in the tree and the state of the window, and it lets the group
 // hold more custom data than that version.
 func holdsGroup(got, want *snapshot.Group) bool {
-	kept := customDataForms(got.CustomData)
-	return groupFields(got) == groupFields(want) &&
-		!slices.ContainsFunc(customDataForms(want.CustomData), func(form string) bool { return !slices.Contains(kept, form) })
+	return groupFields(got) == groupFields(want) && isSubset(customDataForms(want.CustomData), customDataForms(got.CustomData))
+}
+
+// defaultGroupIcon is the icon KeePassXC gives a new group. With no custom icon it is no icon a
+// person has chosen.
+const defaultGroupIcon = 48
+
+// holdsJoined says that the group got, which several groups went into, holds what a person set on
+// the group version want: the name, each other field the same or empty in want, and all its
+// tags and custom data. An empty field is no field of that group: the standard icon with no
+// custom icon, an expiry that is off, a setting that comes from the parent. The time of creation
+// is no setting of a person, since an import writes a new one.
+func holdsJoined(got, want *snapshot.Group) bool {
+	sameOrEmpty := func(empty, same bool) bool { return empty || same }
+	return got.Name == want.Name &&
+		sameOrEmpty(want.Notes == "", got.Notes == want.Notes) &&
+		sameOrEmpty(want.IconID == defaultGroupIcon && want.CustomIcon.IsZero(), got.IconID == want.IconID && got.CustomIcon == want.CustomIcon) &&
+		sameOrEmpty(!want.Times.Expires, got.Times.Expires && got.Times.Expiry.Equal(want.Times.Expiry)) &&
+		sameOrEmpty(want.DefaultAutoTypeSequence == "", got.DefaultAutoTypeSequence == want.DefaultAutoTypeSequence) &&
+		sameOrEmpty(want.EnableAutoType == nil, optional(got.EnableAutoType) == optional(want.EnableAutoType)) &&
+		sameOrEmpty(want.EnableSearching == nil, optional(got.EnableSearching) == optional(want.EnableSearching)) &&
+		isSubset(tagList(want.Tags), tagList(got.Tags)) &&
+		isSubset(customDataForms(want.CustomData), customDataForms(got.CustomData))
+}
+
+// comesFrom says that each value a person sets on the group got, which several groups went
+// into, comes from one of those groups. A value from nowhere is a sign that the value of a group
+// went somewhere else. Custom data may be more, as with one group, see holdsGroup.
+func comesFrom(got *snapshot.Group, groups []*snapshot.Group) bool {
+	var tags []string
+	for _, g := range groups {
+		tags = append(tags, tagList(g.Tags)...)
+	}
+	return slices.ContainsFunc(groups, func(g *snapshot.Group) bool { return g.Notes == got.Notes }) &&
+		slices.ContainsFunc(groups, func(g *snapshot.Group) bool { return g.IconID == got.IconID && g.CustomIcon == got.CustomIcon }) &&
+		(!got.Times.Expires || slices.ContainsFunc(groups, func(g *snapshot.Group) bool { return g.Times.Expires && g.Times.Expiry.Equal(got.Times.Expiry) })) &&
+		slices.ContainsFunc(groups, func(g *snapshot.Group) bool { return g.DefaultAutoTypeSequence == got.DefaultAutoTypeSequence }) &&
+		slices.ContainsFunc(groups, func(g *snapshot.Group) bool { return optional(g.EnableAutoType) == optional(got.EnableAutoType) }) &&
+		slices.ContainsFunc(groups, func(g *snapshot.Group) bool { return optional(g.EnableSearching) == optional(got.EnableSearching) }) &&
+		isSubset(tagList(got.Tags), tags)
+}
+
+func isSubset(items, of []string) bool {
+	return !slices.ContainsFunc(items, func(item string) bool { return !slices.Contains(of, item) })
 }
 
 func groupFields(g *snapshot.Group) string {
@@ -140,7 +181,10 @@ func customDataForm(item *snapshot.CustomDataItem) string {
 
 // tagSet gives one form for the same tags. KeePassXC takes comma and semicolon as separators
 // and sorts the tags when it loads a file, so the same tags have several spellings.
-func tagSet(tags string) string {
+func tagSet(tags string) string { return set(tagList(tags)) }
+
+// tagList gives the tags sorted, each once, in the form of text.
+func tagList(tags string) []string {
 	var result []string
 	for _, tag := range strings.FieldsFunc(tags, func(r rune) bool { return r == ',' || r == ';' }) {
 		if tag = strings.TrimSpace(tag); tag != "" {
@@ -148,7 +192,7 @@ func tagSet(tags string) string {
 		}
 	}
 	slices.Sort(result)
-	return set(slices.Compact(result))
+	return slices.Compact(result)
 }
 
 // The forms below give one unambiguous text for each value. A text value is quoted, so it

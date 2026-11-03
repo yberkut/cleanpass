@@ -210,14 +210,15 @@ func TestPropertyAMergedPairHoldsExactlyItsVersions(t *testing.T) {
 
 // TestPropertyNoLossWithPairs is the property "no losses" of the spec, proved by the Loss Audit:
 // with any answers about conflicts, pairs and deletions, nothing of the input is gone. The audit
-// lets the versions of an absorbed entry move only because the result names that entry, and an
-// entry go only because a decision names it.
+// lets the versions of an entry move under another one only because a decision about that pair
+// names them, and an entry go only because a decision names it. Nothing comes from the result.
 func TestPropertyNoLossWithPairs(t *testing.T) {
 	merges := 0
 	rapid.Check(t, func(t *rapid.T) {
 		s := mergetest.Scenarios().Draw(t, "scenario")
 		in := merge.Input{Copies: s.Copies, Now: s.Now, Key: drawKey(t)}
-		in.Decisions = drawDecisions(t, runOn(t, in).Questions)
+		asked := runOn(t, in).Questions
+		in.Decisions = drawDecisions(t, asked)
 
 		result := runOn(t, in)
 
@@ -226,12 +227,8 @@ func TestPropertyNoLossWithPairs(t *testing.T) {
 			copies[i] = c.Snapshot
 		}
 		allowed := lossaudit.Allowed{
-			Absorbed:     map[snapshot.UUID]snapshot.UUID{},
-			Deleted:      slices.Collect(maps.Keys(allowedToGo(in.Decisions))),
-			MergedGroups: result.MergedGroups,
-		}
-		for _, a := range result.Absorbed {
-			allowed.Absorbed[a.Absorbed] = a.Into
+			Deleted:     slices.Collect(maps.Keys(allowedToGo(in.Decisions))),
+			MergedPairs: merge.PairsToMerge(asked, in.Decisions),
 		}
 		losses := lossaudit.Audit(lossaudit.Input{Copies: copies, Result: result.Merged, Allowed: allowed})
 		if len(losses) != 0 {

@@ -122,7 +122,7 @@ func askAboutPairs(m *merger) {
 			continue
 		}
 		detail := pair.detail()
-		id := QuestionID("pair:" + pair.first.uuid.String() + ":" + pair.second.uuid.String())
+		id := QuestionID(pairPrefix + pair.first.uuid.String() + ":" + pair.second.uuid.String())
 		m.noteAsked(id, pair.first.ruleMain, pair.second.ruleMain)
 		pair.answer, pair.answered = m.ask(Question{ID: id, Choices: 2, Detail: detail})
 		pair.sameContent = detail.SameContent
@@ -178,6 +178,52 @@ const (
 	pairAnswerKeepBoth = iota
 	pairAnswerMerge
 )
+
+const pairPrefix = "pair:"
+
+// PairsToMerge names the pairs of entries the decisions let become one entry: each pair the human
+// chose to merge, and with the answer to merge all pairs with the same content, each pair that
+// question named and that has no answer of its own. It reads the decisions and the questions the
+// human saw, not the result, so the Loss Audit takes what the human said from here.
+func PairsToMerge(questions []Question, decisions []Decision) [][2]snapshot.UUID {
+	answered := map[QuestionID]bool{}
+	for _, d := range decisions {
+		answered[d.Question] = true
+	}
+	var result [][2]snapshot.UUID
+	take := func(id QuestionID) {
+		if pair, ok := pairOf(id); ok {
+			result = append(result, pair)
+		}
+	}
+	for _, d := range decisions {
+		switch {
+		case d.Choice != pairAnswerMerge:
+		case d.Question == identicalPairsQuestion:
+			for _, q := range questions {
+				if bulk, ok := q.Detail.(IdenticalPairs); ok && q.ID == identicalPairsQuestion {
+					for _, id := range bulk.Pairs {
+						if !answered[id] {
+							take(id)
+						}
+					}
+				}
+			}
+		default:
+			take(d.Question)
+		}
+	}
+	return result
+}
+
+// pairOf reads the entries from the ID of a question about a pair.
+func pairOf(id QuestionID) ([2]snapshot.UUID, bool) {
+	rest, isPair := strings.CutPrefix(string(id), pairPrefix)
+	first, second, ok := strings.Cut(rest, ":")
+	a, okA := parseUUID(first)
+	b, okB := parseUUID(second)
+	return [2]snapshot.UUID{a, b}, isPair && ok && okA && okB
+}
 
 // families tells which entries are one by now: it holds the way from an entry to the head of
 // its family. The head is the smallest UUID of the family.

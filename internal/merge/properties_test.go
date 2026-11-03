@@ -99,13 +99,65 @@ func coincidencesOf(steps ...*merge.Result) coincidences {
 	return seen
 }
 
+// part is a merge of some of the copies before the last step of a merge in parts.
+type part struct {
+	copies []merge.Copy
+	result *merge.Result
+}
+
+// joinedWhatAnotherPartChanged says a part has joined groups by their path while a copy outside
+// that part holds a version of one of them the part has not seen. The group the part made has
+// the newest time of the groups it joined, and in the next step it is one more version of the
+// same group: the newest version holds, while the whole set joins each group's own newest
+// version without loss. Nothing in the file tells the version the part made from an edit.
+func joinedWhatAnotherPartChanged(all []merge.Copy, parts ...part) bool {
+	bins := map[snapshot.UUID]bool{}
+	for _, c := range all {
+		bins[c.Snapshot.Meta.RecycleBin] = true
+	}
+	versionsOf := func(copies []merge.Copy) map[snapshot.UUID]map[string]bool {
+		result := map[snapshot.UUID]map[string]bool{}
+		for _, c := range copies {
+			c.Snapshot.Root.Walk(func(g *snapshot.Group) {
+				fields := *g
+				fields.Entries, fields.Groups, fields.IsExpanded = nil, nil, false
+				fields.Times.LastAccess, fields.Times.UsageCount, fields.Times.LocationChanged, fields.PreviousParentGroup = time.Time{}, 0, time.Time{}, nil
+				if result[g.UUID] == nil {
+					result[g.UUID] = map[string]bool{}
+				}
+				result[g.UUID][printed(fields)] = true
+			})
+		}
+		return result
+	}
+	everywhere := versionsOf(all)
+	for _, p := range parts {
+		seen := versionsOf(p.copies)
+		for member, head := range p.result.MergedGroups {
+			if bins[member] || bins[head] {
+				continue
+			}
+			for _, id := range []snapshot.UUID{member, head} {
+				for version := range everywhere[id] {
+					if seen[id] != nil && !seen[id][version] {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
 // TestPropertyAssociative: merging in parts gives what merging at once gives.
 //
 // There is one exception, and it has no way out. Two groups on one path, or a cycle, are a matter
 // of the tree a part sees. Another part can move or rename one of those groups, and then the tree
 // of all copies has no such thing. The part has joined the groups or moved one of them by then.
-// Taking that back needs the old name in the memory, and the spec forbids names there. So a
-// scenario where the parts conclude other things than the whole stays out, and only such a one.
+// Taking that back needs the old name in the memory, and the spec forbids names there. Another
+// part can also hold an older edit of one of the groups a part has joined: the joined group is
+// newer, see joinedWhatAnotherPartChanged. So a scenario where the parts conclude other things
+// than the whole stays out, and only such a one.
 func TestPropertyAssociative(t *testing.T) {
 	checked, skipped := 0, 0
 	rapid.Check(t, func(t *rapid.T) {
@@ -125,13 +177,26 @@ func TestPropertyAssociative(t *testing.T) {
 		}
 		oneByOne := steps[len(steps)-1]
 
+		var before []part
+		for i, step := range steps[:len(steps)-1] {
+			before = append(before, part{copies: s.Copies[:i+1], result: step})
+		}
 		whole := coincidencesOf(atOnce)
 		for _, tc := range []struct {
 			got   *merge.Result
 			steps []*merge.Result
-		}{{inParts, []*merge.Result{left, right, inParts}}, {oneByOne, steps}} {
+			parts []part
+		}{
+			{inParts, []*merge.Result{left, right, inParts}, []part{{s.Copies[:at], left}, {s.Copies[at:], right}}},
+			{oneByOne, steps, before},
+		} {
 			if !reflect.DeepEqual(coincidencesOf(tc.steps...), whole) {
 				skipped++
+				continue
+			}
+			if !reflect.DeepEqual(tc.got.Merged.Root, atOnce.Merged.Root) && joinedWhatAnotherPartChanged(s.Copies, tc.parts...) {
+				skipped++
+				wantSameSnapshot(t, &snapshot.Snapshot{Root: atOnce.Merged.Root, Meta: tc.got.Merged.Meta, Deletions: tc.got.Merged.Deletions, Attachments: tc.got.Merged.Attachments}, atOnce.Merged)
 				continue
 			}
 			checked++

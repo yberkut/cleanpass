@@ -15,17 +15,6 @@ import (
 	"github.com/yberkut/cleanpass/internal/snapshot"
 )
 
-// allowedBy gives what a merge lets leave its place with no decision of this run, the way the
-// tool passes it to the Loss Audit. It names no entry the memory has removed: the audit reads the
-// memory of the copies by itself.
-func allowedBy(result *merge.Result) lossaudit.Allowed {
-	allowed := lossaudit.Allowed{Absorbed: map[snapshot.UUID]snapshot.UUID{}, MergedGroups: result.MergedGroups}
-	for _, a := range result.Absorbed {
-		allowed.Absorbed[a.Absorbed] = a.Into
-	}
-	return allowed
-}
-
 // goneByTheMemory gives the entries that left this merge because of an answer of an earlier one.
 func goneByTheMemory(result *merge.Result) []snapshot.UUID {
 	merged := allEntries(result.Merged)
@@ -53,7 +42,7 @@ func TestPropertyNoLossWithTheMemory(t *testing.T) {
 
 		again := runOn(t, merge.Input{Copies: []merge.Copy{own, other}, Now: s.Now, Key: in.Key})
 
-		losses := lossaudit.Audit(lossaudit.Input{Copies: []*snapshot.Snapshot{first.Merged, other.Snapshot}, Result: again.Merged, Allowed: allowedBy(again)})
+		losses := lossaudit.Audit(lossaudit.Input{Copies: []*snapshot.Snapshot{first.Merged, other.Snapshot}, Result: again.Merged})
 		if len(losses) != 0 {
 			t.Errorf("the audit found losses: %+v", losses)
 		}
@@ -169,7 +158,7 @@ func TestPropertyAnEditNobodySawAsksAfterAnAcceptedDeletion(t *testing.T) {
 					t.Errorf("entry %s lost the edit", uuid)
 				}
 				copies := []*snapshot.Snapshot{result, stale}
-				if losses := lossaudit.Audit(lossaudit.Input{Copies: copies, Result: again.Merged, Allowed: allowedBy(again)}); len(losses) != 0 {
+				if losses := lossaudit.Audit(lossaudit.Input{Copies: copies, Result: again.Merged}); len(losses) != 0 {
 					t.Errorf("the audit found losses: %+v", losses)
 				}
 			}

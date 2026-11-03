@@ -223,7 +223,8 @@ func TestAMoveBringsTwoGroupsOnOnePath(t *testing.T) {
 	}
 }
 
-func TestAJoinedGroupHasTheFieldsOfItsNewestVersion(t *testing.T) {
+// One group of a join would lose its notes, so both stay, and the report names them.
+func TestGroupsOnOnePathWithDifferentNotesStayApart(t *testing.T) {
 	newest := node(groupB, "Work", 1)
 	newest.Notes = "newest"
 	newest.Times.LastModification = hours(9)
@@ -232,11 +233,96 @@ func TestAJoinedGroupHasTheFieldsOfItsNewestVersion(t *testing.T) {
 	oldest.Times.LastModification = hours(1)
 
 	for _, order := range [][]*snapshot.Snapshot{{tree(newest), tree(oldest)}, {tree(oldest), tree(newest)}} {
-		got := mergeOf(t, order...).Merged.Root.Groups[0]
+		result := mergeOf(t, order...)
 
-		if got.UUID != groupA || got.Notes != "newest" {
-			t.Errorf("group %s has notes %q", got.UUID, got.Notes)
+		wantShape(t, result.Merged, "/a1", "/a2")
+		if len(result.MergedGroups) != 0 {
+			t.Errorf("merged groups = %v, want none", result.MergedGroups)
 		}
+		want := merge.GroupsKeptApart{Name: "Work", Groups: []snapshot.UUID{groupA, groupB}}
+		if !slices.ContainsFunc(result.Report, func(e merge.Event) bool { return reflect.DeepEqual(e, want) }) {
+			t.Errorf("report = %s, want %+v", printed(result.Report), want)
+		}
+	}
+}
+
+// A join takes the fields of the newest group, fills what it lacks from the other one, and holds
+// the tags and the custom data of both.
+func TestAJoinLosesNothingOfEitherGroup(t *testing.T) {
+	newest := node(groupB, "Work", 1)
+	newest.Times.LastModification = hours(9)
+	newest.Tags = "beta"
+	newest.CustomData = []snapshot.CustomDataItem{{Key: "shared", Value: "1"}, {Key: "newest", Value: "n"}}
+	newest.IconID = 48
+	oldest := node(groupA, "Work", 1)
+	oldest.Times.LastModification = hours(1)
+	oldest.Notes = "oldest"
+	oldest.IconID, oldest.CustomIcon = 48, snapshot.UUID{7}
+	oldest.Tags = "alpha,beta"
+	oldest.CustomData = []snapshot.CustomDataItem{{Key: "shared", Value: "1"}, {Key: "oldest", Value: "o"}}
+
+	for _, order := range [][]*snapshot.Snapshot{{tree(newest), tree(oldest)}, {tree(oldest), tree(newest)}} {
+		result := mergeOf(t, order...)
+
+		wantShape(t, result.Merged, "/a1")
+		got := result.Merged.Root.Groups[0]
+		if got.Notes != "oldest" || got.CustomIcon != (snapshot.UUID{7}) || got.Tags != "alpha;beta" || !got.Times.LastModification.Equal(hours(9)) {
+			t.Errorf("group = %s", printed(got))
+		}
+		want := []snapshot.CustomDataItem{{Key: "newest", Value: "n"}, {Key: "oldest", Value: "o"}, {Key: "shared", Value: "1"}}
+		if !reflect.DeepEqual(got.CustomData, want) {
+			t.Errorf("custom data = %s, want %s", printed(got.CustomData), printed(want))
+		}
+	}
+}
+
+// The joined group has the time of the newest group, and a copy still holds that group. Of the
+// two versions with one time the one that holds the other wins, or the next merge loses the rest.
+func TestAJoinedGroupStaysWholeInTheNextMerge(t *testing.T) {
+	for name, set := range map[string]func(g *snapshot.Group){
+		"notes": func(g *snapshot.Group) { g.Notes = "oldest" },
+		"icon":  func(g *snapshot.Group) { g.IconID = 3 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			newest := node(groupB, "Work", 1)
+			newest.Times.LastModification = hours(9)
+			newest.IconID, newest.Tags = 48, "beta"
+			oldest := node(groupA, "Work", 1)
+			oldest.Times.LastModification = hours(1)
+			oldest.IconID = 48
+			set(&oldest)
+			merged := mergeOf(t, tree(newest), tree(oldest)).Merged
+
+			for _, old := range []*snapshot.Snapshot{tree(newest), tree(oldest)} {
+				for _, order := range [][]*snapshot.Snapshot{{merged, old}, {old, merged}} {
+					wantSameTree(t, mergeOf(t, order...).Merged, merged)
+				}
+			}
+		})
+	}
+}
+
+// Each field a person sets keeps two groups on one path apart if they differ in it.
+func TestGroupsOnOnePathStayApartOnAnyFieldThatDiffers(t *testing.T) {
+	yes, no := true, false
+	for name, set := range map[string]func(a, b *snapshot.Group){
+		"icon":               func(a, b *snapshot.Group) { a.IconID, b.IconID = 3, 5 },
+		"custom icon":        func(a, b *snapshot.Group) { a.CustomIcon, b.CustomIcon = snapshot.UUID{3}, snapshot.UUID{5} },
+		"expiry":             func(a, b *snapshot.Group) { a.Times.Expires, b.Times.Expires, b.Times.Expiry = true, true, hours(3) },
+		"auto-type sequence": func(a, b *snapshot.Group) { a.DefaultAutoTypeSequence, b.DefaultAutoTypeSequence = "{A}", "{B}" },
+		"auto-type":          func(a, b *snapshot.Group) { a.EnableAutoType, b.EnableAutoType = &yes, &no },
+		"search":             func(a, b *snapshot.Group) { a.EnableSearching, b.EnableSearching = &yes, &no },
+		"custom data value": func(a, b *snapshot.Group) {
+			a.CustomData, b.CustomData = []snapshot.CustomDataItem{{Key: "k", Value: "1"}}, []snapshot.CustomDataItem{{Key: "k", Value: "2"}}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a, b := node(groupA, "Work", 1), node(groupB, "Work", 1)
+			a.IconID, b.IconID = 48, 48
+			set(&a, &b)
+
+			wantShape(t, mergeOf(t, tree(a), tree(b)).Merged, "/a1", "/a2")
+		})
 	}
 }
 

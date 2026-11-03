@@ -64,10 +64,13 @@ func WriteDifferences(w io.Writer, facts merge.Facts) error {
 		}
 	}
 	out.pairsAnswered(&facts)
-	if len(facts.GroupsJoined)+len(facts.GroupCycles) > 0 {
+	if len(facts.GroupsJoined)+len(facts.GroupsKeptApart)+len(facts.GroupCycles) > 0 {
 		out.header(text.SectionGroups)
 		for _, g := range byTitle(facts.GroupsJoined, func(g merge.GroupsJoined) string { return g.Name }) {
 			out.line("  ", text.GroupsJoin(groupName(g.Name, g.Into), len(g.Joined)))
+		}
+		for _, g := range byTitle(facts.GroupsKeptApart, func(g merge.GroupsKeptApart) string { return g.Name }) {
+			out.line("  ", text.GroupsStayApart(groupName(g.Name, g.Groups[0]), len(g.Groups)-1))
 		}
 		for _, g := range byTitle(facts.GroupCycles, func(g merge.GroupCycleBroken) string { return g.Name }) {
 			out.line("  ", text.GroupLeavesCycle(groupName(g.Name, g.Group)))

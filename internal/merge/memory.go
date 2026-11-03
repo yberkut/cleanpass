@@ -111,6 +111,7 @@ func readMemory(m *merger) {
 	m.memory = mem
 	m.sameEntries = maps.Clone(mem.entries)
 	m.sameGroups = maps.Clone(mem.groups)
+	m.sameUnits = maps.Clone(mem.groups)
 }
 
 func (mem *memory) read(kind string, parts []string, value string) {

@@ -28,23 +28,21 @@ type Input struct {
 	Allowed Allowed
 }
 
-// Allowed holds the reasons for which data may leave its place. Such a reason never lets
-// more go than it names: deleting a group does not cover its entries, and no reason covers a
-// deletion record, a custom icon, custom data or the bytes of an attachment that a kept
-// version refers to.
+// Allowed holds the decisions of the human in this merge that let data leave its place. Such a
+// decision never lets more go than it names: deleting a group does not cover its entries, and no
+// decision covers a deletion record, a custom icon, custom data or the bytes of an attachment
+// that a kept version refers to.
 //
-// A decision of an earlier merge is not here. The audit does not take that from the engine: it
-// reads it from the copies, see rememberedDeletions.
+// Nothing here comes from the result of the engine. A decision of an earlier merge is not here
+// either: the audit reads it from the copies, see readMemory. Groups on one path are a rule of
+// the spec, not a decision, and the audit finds them by itself, see checkGroups.
 type Allowed struct {
 	// Deleted holds the entries and the groups the human explicitly chose to delete in this merge.
 	Deleted []snapshot.UUID
-	// Absorbed maps an entry the human merged into another one to the entry that took its
-	// versions. The versions themselves must stay. Deleting the entry that took them
-	// covers them too.
-	Absorbed map[snapshot.UUID]snapshot.UUID
-	// MergedGroups maps a group joined by its path to the group that took its place. All
-	// the groups joined this way count as one group, and that group must stay.
-	MergedGroups map[snapshot.UUID]snapshot.UUID
+	// MergedPairs holds the pairs of entries the human chose to merge in this merge, one pair at
+	// a time or all pairs with the same content at once. The entries of a pair are one entry
+	// then: their versions must stay under either of them, and deleting one covers both.
+	MergedPairs [][2]snapshot.UUID
 }
 
 // Kind says what was lost.
@@ -93,10 +91,15 @@ type Loss struct {
 // Audit lists what the copies hold and the result does not, in a fixed order. An empty list
 // means that nothing is lost.
 func Audit(in Input) []Loss {
+	memory := readMemory(in.Copies)
+	for _, pair := range in.Allowed.MergedPairs {
+		memory.entries.join(pair[0], pair[1])
+	}
 	a := auditor{
 		in:             in,
 		chosenToDelete: map[snapshot.UUID]bool{},
-		remembered:     rememberedDeletions(in.Copies),
+		memory:         memory,
+		sameEntries:    memory.entries.members(),
 		kept:           keptInResult(in.Result),
 		losses:         map[Loss]bool{},
 	}
@@ -117,8 +120,10 @@ func Audit(in Input) []Loss {
 type auditor struct {
 	in             Input
 	chosenToDelete map[snapshot.UUID]bool
-	// remembered holds the keys of the deletions the copies remember.
-	remembered map[string]bool
+	// memory is what the copies remember, and the pairs of this merge. sameEntries gives for
+	// each entry with a family all members of that family: one entry to the audit.
+	memory      memory
+	sameEntries map[snapshot.UUID][]snapshot.UUID
 	// kept holds the versions of each entry of the result.
 	kept   map[snapshot.UUID]keptVersions
 	losses map[Loss]bool
@@ -178,7 +183,7 @@ func (a *auditor) isKept(places []snapshot.UUID, v *snapshot.EntryVersion) bool 
 func (a *auditor) checkVersions() {
 	for _, c := range a.in.Copies {
 		walkEntries(c, func(e *snapshot.Entry) {
-			places := followLinks(e.UUID, a.in.Allowed.Absorbed)
+			places := placesOf(a.sameEntries, e.UUID)
 			if a.deleted(places) {
 				return
 			}
@@ -191,30 +196,12 @@ func (a *auditor) checkVersions() {
 	}
 }
 
-// The memory of decisions is a contract with the Merge Engine, written down in the custom data of
-// a copy. The audit reads it from the copies, not from the result and not from the engine, so a
-// bug in the engine cannot excuse itself. A key names an entry the human chose to delete and the
-// time of one version the human saw then: a version with any other time is news to the human.
-const rememberedDeletionPrefix = "cleanpass/accepted/"
-
-func rememberedDeletions(copies []*snapshot.Snapshot) map[string]bool {
-	remembered := map[string]bool{}
-	for _, c := range copies {
-		for i := range c.Meta.CustomData {
-			if key := c.Meta.CustomData[i].Key; strings.HasPrefix(key, rememberedDeletionPrefix) {
-				remembered[key] = true
-			}
-		}
-	}
-	return remembered
-}
-
 // humanSawItDeleted says a copy remembers that the human deleted one of the places, knowing a
 // version with this time.
 func (a *auditor) humanSawItDeleted(places []snapshot.UUID, v *snapshot.EntryVersion) bool {
 	seen := "/" + v.Times.LastModification.UTC().Format(time.RFC3339Nano)
 	return slices.ContainsFunc(places, func(p snapshot.UUID) bool {
-		return a.remembered[rememberedDeletionPrefix+p.String()+seen]
+		return a.memory.accepted[memoryAccepted+p.String()+seen]
 	})
 }
 
@@ -234,7 +221,7 @@ func (a *auditor) checkAttachments() {
 	needed := map[snapshot.AttachmentID]snapshot.UUID{}
 	for _, c := range a.in.Copies {
 		walkEntries(c, func(e *snapshot.Entry) {
-			places := followLinks(e.UUID, a.in.Allowed.Absorbed)
+			places := placesOf(a.sameEntries, e.UUID)
 			if a.deleted(places) {
 				return
 			}
@@ -277,41 +264,6 @@ func (a *auditor) checkDeletions() {
 	for id, at := range wanted {
 		if got, ok := kept[id]; !ok || got.Before(at) {
 			a.lose(Loss{Kind: DeletionLost, Object: id, Time: at.UTC()})
-		}
-	}
-}
-
-// checkGroups wants each group in the result with the fields of its newest version. The file
-// has no history of groups, so the older versions may go, as the spec says. All root groups
-// are one group, and so are the groups joined by their path.
-func (a *auditor) checkGroups() {
-	roots := map[snapshot.UUID]bool{}
-	for _, c := range a.in.Copies {
-		roots[c.Root.UUID] = true
-	}
-	wanted := map[snapshot.UUID]*newest[*snapshot.Group]{}
-	for _, c := range a.in.Copies {
-		c.Root.Walk(func(g *snapshot.Group) {
-			path := followLinks(g.UUID, a.in.Allowed.MergedGroups)
-			if a.deleted(path) {
-				return
-			}
-			survivor := path[len(path)-1]
-			if roots[survivor] {
-				survivor = a.in.Result.Root.UUID
-			}
-			see(wanted, survivor, g.Times.LastModification, g)
-		})
-	}
-	kept := map[snapshot.UUID]*snapshot.Group{}
-	a.in.Result.Root.Walk(func(g *snapshot.Group) { kept[g.UUID] = g })
-	for id, versions := range wanted {
-		got, ok := kept[id]
-		switch {
-		case !ok:
-			a.lose(Loss{Kind: GroupLost, Object: id})
-		case !slices.ContainsFunc(versions.items, func(v *snapshot.Group) bool { return holdsGroup(got, v) }):
-			a.lose(Loss{Kind: GroupFieldsLost, Object: id})
 		}
 	}
 }
@@ -416,17 +368,4 @@ func containsAny(kept, wanted []string) bool {
 // deleted says that the human chose to delete one of the places.
 func (a *auditor) deleted(places []snapshot.UUID) bool {
 	return slices.ContainsFunc(places, func(p snapshot.UUID) bool { return a.chosenToDelete[p] })
-}
-
-// followLinks gives id and all it leads to. A loop ends the walk, so a wrong decision can
-// neither hang the audit nor hide a loss.
-func followLinks(id snapshot.UUID, links map[snapshot.UUID]snapshot.UUID) []snapshot.UUID {
-	path := []snapshot.UUID{id}
-	for {
-		next, ok := links[path[len(path)-1]]
-		if !ok || slices.Contains(path, next) {
-			return path
-		}
-		path = append(path, next)
-	}
 }

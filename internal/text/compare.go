@@ -218,6 +218,12 @@ func GroupsJoin(name string, others int) string {
 	return fmt.Sprintf("%s: в одну групу з нею об'єднається ще груп: %d (однаковий шлях або кошик)", name, others)
 }
 
+// GroupsStayApart names a group that stays apart from other groups on the same path, because one
+// group made of them would lose a field.
+func GroupsStayApart(name string, others int) string {
+	return fmt.Sprintf("%s: на тому самому шляху лишиться окремо ще груп: %d, бо одна група загубила б нотатки, значок, CustomData або інше поле", name, others)
+}
+
 // GroupLeavesCycle names a group that leaves its parent to break a cycle.
 func GroupLeavesCycle(name string) string {
 	return name + ": рухи в різних копіях зациклили групи, тому ця група стане під кореневу"

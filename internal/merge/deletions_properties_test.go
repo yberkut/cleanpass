@@ -210,7 +210,7 @@ func TestPropertyTheAuditAcceptsOnlyTheAnswerDelete(t *testing.T) {
 		run := runOn(t, in)
 		result := run.Merged
 
-		allowed := lossaudit.Allowed{Deleted: slices.Collect(maps.Keys(allowedToGo(in.Decisions))), MergedGroups: run.MergedGroups}
+		allowed := lossaudit.Allowed{Deleted: slices.Collect(maps.Keys(allowedToGo(in.Decisions)))}
 		if losses := lossaudit.Audit(lossaudit.Input{Copies: copies, Result: result, Allowed: allowed}); len(losses) != 0 {
 			t.Errorf("the audit found losses with the decisions: %+v", losses)
 		}
@@ -222,7 +222,7 @@ func TestPropertyTheAuditAcceptsOnlyTheAnswerDelete(t *testing.T) {
 			}
 		}
 		found := map[snapshot.UUID]bool{}
-		for _, loss := range lossaudit.Audit(lossaudit.Input{Copies: copies, Result: result, Allowed: lossaudit.Allowed{MergedGroups: run.MergedGroups}}) {
+		for _, loss := range lossaudit.Audit(lossaudit.Input{Copies: copies, Result: result}) {
 			if loss.Kind != lossaudit.VersionLost && loss.Kind != lossaudit.AttachmentLost {
 				t.Errorf("the audit found a loss of another kind: %+v", loss)
 			}

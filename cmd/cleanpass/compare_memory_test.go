@@ -33,6 +33,20 @@ func TestCompareSaysWhichGroupsWillJoin(t *testing.T) {
 	wantLines(t, section(t, got.Stdout, groupsSection), "  Робота: в одну групу з нею об'єднається ще груп: 1 (однаковий шлях або кошик)")
 }
 
+// One group made of the two would lose the notes of one, so both stay, and the report says so.
+func TestCompareSaysWhichGroupsOnOnePathStayApart(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	a := rawCopy(t, dir, "a.kdbx", withGroup(groupXML("AAAAAAAAAAAAAAAAAAADAA==", "Робота", v1, "<Notes>перші</Notes>")))
+	b := rawCopy(t, dir, "b.kdbx", withGroup(groupXML("AAAAAAAAAAAAAAAAAAADAQ==", "Робота", v1, "<Notes>другі</Notes>")))
+
+	got := testkit.Run(t, passwords(2), "compare", a.Path, b.Path)
+
+	wantCode(t, got, 0)
+	wantLines(t, section(t, got.Stdout, groupsSection),
+		"  Робота: на тому самому шляху лишиться окремо ще груп: 1, бо одна група загубила б нотатки, значок, CustomData або інше поле")
+}
+
 func TestCompareSaysWhichGroupLeavesACycle(t *testing.T) {
 	t.Parallel()
 	const first, second = "AAAAAAAAAAAAAAAAAAADAA==", "AAAAAAAAAAAAAAAAAAADAQ=="

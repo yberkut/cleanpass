@@ -44,6 +44,7 @@ func (m *merger) readBins() recycleBins {
 					one = g.UUID
 				}
 				m.sameGroups.join(one, g.UUID)
+				m.sameUnits.join(one, g.UUID)
 			}
 		})
 	}

@@ -130,6 +130,10 @@ type merger struct {
 	// sameEntries and sameGroups tell which entries and which groups are one by now: the
 	// memory, and what this merge adds to it.
 	sameEntries, sameGroups families
+	// sameUnits tells which groups are versions of one group: the groups an earlier merge has
+	// joined, and all bins. Of them the newest version holds, while a join by path in this
+	// merge keeps what each group has, see joinable.
+	sameUnits families
 	// remembered holds the keys of the decisions of this merge.
 	remembered map[string]bool
 	// out is the merged copy so far. A rule fills the parts it owns.
