@@ -1105,7 +1105,7 @@ func TestARunWithTheFaultVariableSaysItIsATest(t *testing.T) {
 
 		wantCode(t, got, 0)
 		wantInOutput(t, got.Stderr, warning, safewriter.FaultVariable)
-		wantUkrainian(t, "", got.Stderr, safewriter.FaultVariable)
+		wantUkrainian(t, "", got.Stderr)
 	}
 	wantNotInOutput(t, testkit.Run(t, "", "--help").Stderr, warning)
 }

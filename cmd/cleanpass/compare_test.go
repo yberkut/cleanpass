@@ -423,6 +423,8 @@ func wantUkrainian(t *testing.T, stdout, stderr string, paths ...string) {
 		"UUID": true, "URL": true, "Ctrl": true,
 		"Git": true, "Bash": true, "mintty": true, "winpty": true, "Windows": true, "Terminal": true,
 		"YubiKey": true, "yubikey": true, "ykman": true, "Yubico": true,
+		// The name of the variable of the test faults, which the warning of a test run gives.
+		"CLEANPASS": true, "TEST": true, "FAULT": true,
 	}
 	for _, output := range []string{stdout, stderr} {
 		output = commandLine.ReplaceAllString(output, "")
