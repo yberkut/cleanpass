@@ -248,18 +248,18 @@ func (l *pairLedger) settles(q *merge.Question) bool {
 	})
 }
 
-// note takes in an answer. Answer 1 merges, both for one pair and for all pairs with the same
-// content. Answer 0 keeps a pair apart and says nothing about all such pairs.
+// note takes in an answer. AnswerMergePair merges, both for one pair and for all pairs with the same
+// content. AnswerKeepBoth keeps a pair apart and says nothing about all such pairs.
 func (l *pairLedger) note(q *merge.Question, choice int, questions []merge.Question) {
 	switch detail := q.Detail.(type) {
 	case merge.SimilarPair:
-		if choice == 1 {
+		if choice == merge.AnswerMergePair {
 			l.join(detail)
 		} else {
 			l.apart = append(l.apart, [2]snapshot.UUID{detail.First.Entry, detail.Second.Entry})
 		}
 	case merge.IdenticalPairs:
-		if choice != 1 {
+		if choice != merge.AnswerMergePair {
 			return
 		}
 		for i := range questions {

@@ -118,7 +118,7 @@ func askAboutPairs(m *merger) {
 	var identical []QuestionID
 	for _, pair := range pairs {
 		if m.memory.different[orderedPair(pair.first.uuid, pair.second.uuid)] {
-			pair.answer, pair.answered = pairAnswerKeepBoth, true
+			pair.answer, pair.answered = AnswerKeepBoth, true
 			continue
 		}
 		detail := pair.detail()
@@ -129,14 +129,14 @@ func askAboutPairs(m *merger) {
 		if detail.SameContent {
 			identical = append(identical, id)
 		}
-		if pair.answered && pair.answer == pairAnswerKeepBoth {
+		if pair.answered && pair.answer == AnswerKeepBoth {
 			m.remember(memoryDifferent, pair.first.uuid.String(), pair.second.uuid.String())
 		}
 	}
 	mergeIdentical := false
 	if len(identical) > 0 {
 		choice, _ := m.ask(Question{ID: identicalPairsQuestion, Choices: 2, Detail: IdenticalPairs{Pairs: identical}})
-		mergeIdentical = choice == pairAnswerMerge
+		mergeIdentical = choice == AnswerMergePair
 	}
 	m.mergePairs(pairs, mergeIdentical)
 }
@@ -147,7 +147,7 @@ func askAboutPairs(m *merger) {
 func (m *merger) mergePairs(pairs []*similarPair, mergeIdentical bool) {
 	keptApart := slices.Collect(maps.Keys(m.memory.different))
 	for _, pair := range pairs {
-		if pair.answered && pair.answer == pairAnswerKeepBoth {
+		if pair.answered && pair.answer == AnswerKeepBoth {
 			keptApart = append(keptApart, orderedPair(pair.first.uuid, pair.second.uuid))
 		}
 	}
@@ -173,10 +173,13 @@ func (m *merger) mergePairs(pairs []*similarPair, mergeIdentical bool) {
 	}
 }
 
-// The answers to a question about a pair.
+// The answers to a question about a pair. The question about all pairs with the same content has
+// the same two: AnswerKeepBoth changes nothing there, and AnswerMergePair merges them all.
 const (
-	pairAnswerKeepBoth = iota
-	pairAnswerMerge
+	// AnswerKeepBoth keeps both entries. It is what happens without an answer.
+	AnswerKeepBoth = 0
+	// AnswerMergePair makes one entry of the two.
+	AnswerMergePair = 1
 )
 
 const pairPrefix = "pair:"
@@ -198,7 +201,7 @@ func PairsToMerge(questions []Question, decisions []Decision) [][2]snapshot.UUID
 	}
 	for _, d := range decisions {
 		switch {
-		case d.Choice != pairAnswerMerge:
+		case d.Choice != AnswerMergePair:
 		case d.Question == identicalPairsQuestion:
 			for _, q := range questions {
 				if bulk, ok := q.Detail.(IdenticalPairs); ok && q.ID == identicalPairsQuestion {
@@ -284,7 +287,7 @@ type similarPair struct {
 // answer about all pairs with the same content.
 func (p *similarPair) wantsMerge(mergeIdentical bool) bool {
 	if p.answered {
-		return p.answer == pairAnswerMerge
+		return p.answer == AnswerMergePair
 	}
 	return mergeIdentical && p.sameContent
 }

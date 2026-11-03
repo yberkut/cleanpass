@@ -7,17 +7,20 @@ import (
 	"github.com/yberkut/cleanpass/internal/text"
 )
 
+// typed gives the number a person types for an answer of the engine: the numbers start at 1.
+func typed(choice int) int { return choice + 1 }
+
 // WriteDeletionQuestion shows a question about a deletion with its answers.
 func WriteDeletionQuestion(w io.Writer, d merge.Deletion) error {
 	out := &writer{w: w}
 	out.line("", text.QuestionDeletion)
 	out.line("  ", labelText(d.Label, d.Entry))
 	out.deletionFacts(&d)
-	out.line("    ", text.AnswerKeepEntry(1))
+	out.line("    ", text.AnswerKeepEntry(typed(merge.AnswerKeep)))
 	if len(d.Recorded) > 0 {
-		out.line("    ", text.AnswerDeleteEntry(2))
+		out.line("    ", text.AnswerDeleteEntry(typed(merge.AnswerDelete)))
 	} else {
-		out.line("    ", text.AnswerDeleteToBin(2))
+		out.line("    ", text.AnswerDeleteToBin(typed(merge.AnswerDelete)))
 	}
 	return out.err
 }
@@ -40,7 +43,7 @@ func WriteConflictQuestion(w io.Writer, c merge.Conflict) error {
 	out.line("    ", text.ConflictHint)
 	for i := range c.Versions {
 		v := &c.Versions[i]
-		out.line("    ", text.AnswerVersion(i+1, formatTime(v.Modified), v.Copies))
+		out.line("    ", text.AnswerVersion(typed(i), formatTime(v.Modified), v.Copies))
 		out.line("       ", labelText(v.Label, c.Entry))
 		if i > 0 {
 			out.line("       ", differsFromFirst(v.Differences))
@@ -62,8 +65,8 @@ func WritePairQuestion(w io.Writer, p merge.SimilarPair) error {
 	out := &writer{w: w}
 	out.line("", text.QuestionPair)
 	out.pair(&p)
-	out.line("    ", text.AnswerKeepBoth(1))
-	out.line("    ", text.AnswerMergePair(2))
+	out.line("    ", text.AnswerKeepBoth(typed(merge.AnswerKeepBoth)))
+	out.line("    ", text.AnswerMergePair(typed(merge.AnswerMergePair)))
 	return out.err
 }
 
@@ -71,8 +74,8 @@ func WritePairQuestion(w io.Writer, p merge.SimilarPair) error {
 func WriteIdenticalPairsQuestion(w io.Writer, count int) error {
 	out := &writer{w: w}
 	out.line("", text.QuestionIdenticalPairs(count))
-	out.line("    ", text.AnswerAskEach(1))
-	out.line("    ", text.AnswerMergeAll(2))
+	out.line("    ", text.AnswerAskEach(typed(merge.AnswerKeepBoth)))
+	out.line("    ", text.AnswerMergeAll(typed(merge.AnswerMergePair)))
 	return out.err
 }
 
