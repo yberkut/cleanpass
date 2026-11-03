@@ -123,9 +123,9 @@ func kdfName(k snapshot.KDF) string {
 	case snapshot.KDFAES:
 		return text.KDFAES(k.Rounds)
 	case snapshot.KDFArgon2d:
-		return text.KDFArgon2("Argon2d", k.MemoryBytes/mebibyte, k.Iterations, k.Parallelism)
+		return text.KDFArgon2(text.KDFNameArgon2d, k.MemoryBytes/mebibyte, k.Iterations, k.Parallelism)
 	case snapshot.KDFArgon2id:
-		return text.KDFArgon2("Argon2id", k.MemoryBytes/mebibyte, k.Iterations, k.Parallelism)
+		return text.KDFArgon2(text.KDFNameArgon2id, k.MemoryBytes/mebibyte, k.Iterations, k.Parallelism)
 	}
 	return ""
 }

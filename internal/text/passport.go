@@ -21,6 +21,9 @@ const (
 	CipherAES256   = "AES-256"
 	CipherChaCha20 = "ChaCha20"
 	CipherTwofish  = "Twofish"
+
+	KDFNameArgon2d  = "Argon2d"
+	KDFNameArgon2id = "Argon2id"
 )
 
 // CopyHeader is the first line of the passport of a copy.
