@@ -76,10 +76,10 @@ func TestAnEditThatLeftCustomDataOutOfTheHistoryIsReportedAsALag(t *testing.T) {
 		Key:    testKey,
 	})
 
-	if len(result.Report) != 1 {
-		t.Fatalf("report = %s, want one event", printed(result.Report))
+	if len(result.Events) != 1 {
+		t.Fatalf("report = %s, want one event", printed(result.Events))
 	}
-	change := result.Report[0].(merge.EntryChange)
+	change := result.Events[0].(merge.EntryChange)
 	if change.Outcome != merge.OutcomeUpdated {
 		t.Errorf("outcome = %d, want updated", change.Outcome)
 	}
@@ -394,7 +394,7 @@ func TestValuesOfCustomDataStayOutOfQuestionsAndReport(t *testing.T) {
 		if !slices.Contains(conflict.Versions[1].Differences.Attributes, merge.AttributeCustomData) {
 			t.Errorf("the answer does not say that the custom data differs: %s", printed(conflict.Versions[1]))
 		}
-		text := printed(result.Questions) + printed(result.Report)
+		text := printed(result.Questions) + printed(result.Events)
 		if strings.Contains(text, firstValue) || strings.Contains(text, secondValue) {
 			t.Errorf("a value of custom data reached the questions or the report:\n%s", text)
 		}

@@ -266,12 +266,12 @@ func TestTheReportTellsWhatHappenedAndNothingElse(t *testing.T) {
 
 			result := mustRun(t, in)
 
-			if len(result.Report) != 1 {
-				t.Fatalf("got %d events, want 1: %s", len(result.Report), printed(result.Report))
+			if len(result.Events) != 1 {
+				t.Fatalf("got %d events, want 1: %s", len(result.Events), printed(result.Events))
 			}
-			event, ok := result.Report[0].(merge.DeletionChange)
+			event, ok := result.Events[0].(merge.DeletionChange)
 			if !ok {
-				t.Fatalf("the event is %T, want merge.DeletionChange", result.Report[0])
+				t.Fatalf("the event is %T, want merge.DeletionChange", result.Events[0])
 			}
 			if event.Outcome != tc.want || event.Entry != mailID || event.Label.Title != "Mail" {
 				t.Errorf("event = %s, want outcome %v", printed(event), tc.want)
@@ -289,10 +289,10 @@ func TestAKeptEntryKeepsItsChangeInTheReport(t *testing.T) {
 		database(entry(version(hours(2), "newer"), older)),
 	)
 
-	if len(result.Report) != 2 {
-		t.Fatalf("got %d events, want 2: %s", len(result.Report), printed(result.Report))
+	if len(result.Events) != 2 {
+		t.Fatalf("got %d events, want 2: %s", len(result.Events), printed(result.Events))
 	}
-	for _, event := range result.Report {
+	for _, event := range result.Events {
 		if change, ok := event.(merge.EntryChange); ok && change.Outcome != merge.OutcomeUpdated {
 			t.Errorf("outcome = %v, want %v", change.Outcome, merge.OutcomeUpdated)
 		}

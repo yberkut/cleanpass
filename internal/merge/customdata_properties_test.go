@@ -151,7 +151,7 @@ func TestPropertyTheSameContentIsNoConflict(t *testing.T) {
 		result := runOn(t, merge.Input{Copies: s.Copies, Now: s.Now, Key: drawKey(t)})
 
 		told := map[snapshot.UUID]merge.EntryChange{}
-		for _, event := range result.Report {
+		for _, event := range result.Events {
 			if change, ok := event.(merge.EntryChange); ok {
 				told[change.Entry] = change
 			}

@@ -55,7 +55,7 @@ func TestAFileSavedAgainByKeePassXCHasTheSameVersions(t *testing.T) {
 	})
 
 	wantNoQuestions(t, result)
-	for _, event := range result.Report {
+	for _, event := range result.Events {
 		t.Errorf("a plain save gave the report event %s", printed(event))
 	}
 	if got, want := countVersions(result.Merged), countVersions(before); got != want {
@@ -161,7 +161,7 @@ func TestARealMoveToTheBinIsNoConflict(t *testing.T) {
 			if deletions := deletionQuestions(result.Questions); len(deletions) != 1 {
 				t.Errorf("questions about deletions: %s", printed(deletions))
 			}
-			for _, event := range result.Report {
+			for _, event := range result.Events {
 				if change, ok := event.(merge.EntryChange); ok && (change.Outcome == merge.OutcomeConflict || change.Outcome == merge.OutcomeAsked) {
 					t.Errorf("the report tells a conflict: %s", printed(change))
 				}

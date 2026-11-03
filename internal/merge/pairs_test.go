@@ -473,7 +473,7 @@ func TestTheReportTellsAboutAMergedPair(t *testing.T) {
 	result := answerPair(t, in, firstID, secondID, 1)
 
 	var got []merge.PairMerged
-	for _, event := range result.Report {
+	for _, event := range result.Events {
 		if merged, ok := event.(merge.PairMerged); ok {
 			got = append(got, merged)
 		}
@@ -590,7 +590,7 @@ func TestMergedPairsThatShareAnEntryBecomeOneEntry(t *testing.T) {
 // pairEvents gives the events about pairs.
 func pairEvents(result *merge.Result) []merge.Event {
 	var events []merge.Event
-	for _, event := range result.Report {
+	for _, event := range result.Events {
 		switch event.(type) {
 		case merge.PairMerged, merge.PairNotMerged:
 			events = append(events, event)

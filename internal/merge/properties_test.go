@@ -72,8 +72,8 @@ func TestPropertyCommutative(t *testing.T) {
 		if !reflect.DeepEqual(second.Questions, first.Questions) {
 			t.Errorf("the questions differ:\n got %s\nwant %s", printed(second.Questions), printed(first.Questions))
 		}
-		if !reflect.DeepEqual(second.Report, first.Report) {
-			t.Errorf("the report differs:\n got %s\nwant %s", printed(second.Report), printed(first.Report))
+		if !reflect.DeepEqual(second.Events, first.Events) {
+			t.Errorf("the report differs:\n got %s\nwant %s", printed(second.Events), printed(first.Events))
 		}
 	})
 }
@@ -90,7 +90,7 @@ type coincidences struct {
 func coincidencesOf(steps ...*merge.Result) coincidences {
 	seen := coincidences{joined: steps[len(steps)-1].MergedGroups, broken: map[snapshot.UUID]bool{}}
 	for _, step := range steps {
-		for _, event := range step.Report {
+		for _, event := range step.Events {
 			if cycle, ok := event.(merge.GroupCycleBroken); ok {
 				seen.broken[cycle.Group] = true
 			}
@@ -228,7 +228,7 @@ func questionsToBeGone(decisions []merge.Decision, result *merge.Result) map[mer
 			delete(gone, q.ID)
 		}
 	}
-	for _, event := range result.Report {
+	for _, event := range result.Events {
 		if open, ok := event.(merge.PairNotMerged); ok {
 			delete(gone, merge.QuestionID("pair:"+open.First.Entry.String()+":"+open.Second.Entry.String()))
 		}
@@ -871,7 +871,7 @@ func TestPropertyNoSecretInQuestionsOrReport(t *testing.T) {
 
 		result := runOn(t, merge.Input{Copies: s.Copies, Now: s.Now, Key: drawKey(t)})
 
-		text := printed(result.Questions) + printed(result.Report)
+		text := printed(result.Questions) + printed(result.Events)
 		for _, marker := range []string{mergetest.SecretMarker, mergetest.CustomDataMarker} {
 			if strings.Contains(text, marker) {
 				t.Errorf("a value with the marker %s reached the questions or the report:\n%s", marker, text)

@@ -23,12 +23,12 @@ func printed(value any) string {
 // theEntryChange returns the only event of the result, which must be about an entry.
 func theEntryChange(t *testing.T, result *merge.Result) merge.EntryChange {
 	t.Helper()
-	if len(result.Report) != 1 {
-		t.Fatalf("got %d events, want 1: %s", len(result.Report), printed(result.Report))
+	if len(result.Events) != 1 {
+		t.Fatalf("got %d events, want 1: %s", len(result.Events), printed(result.Events))
 	}
-	change, ok := result.Report[0].(merge.EntryChange)
+	change, ok := result.Events[0].(merge.EntryChange)
 	if !ok {
-		t.Fatalf("the event is %T, want merge.EntryChange", result.Report[0])
+		t.Fatalf("the event is %T, want merge.EntryChange", result.Events[0])
 	}
 	return change
 }
@@ -38,8 +38,8 @@ func TestEqualCopiesGiveAnEmptyReport(t *testing.T) {
 
 	result := mergeOf(t, same, same)
 
-	if len(result.Report) != 0 {
-		t.Errorf("report = %s, want empty", printed(result.Report))
+	if len(result.Events) != 0 {
+		t.Errorf("report = %s, want empty", printed(result.Events))
 	}
 }
 
@@ -130,7 +130,7 @@ func TestTheReportIsInAFixedOrder(t *testing.T) {
 	result := mergeOf(t, withEntries, database())
 
 	var got []snapshot.UUID
-	for _, event := range result.Report {
+	for _, event := range result.Events {
 		got = append(got, event.(merge.EntryChange).Entry)
 	}
 	if want := []snapshot.UUID{mailID, second, third}; !reflect.DeepEqual(got, want) {

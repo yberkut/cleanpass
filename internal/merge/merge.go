@@ -54,8 +54,8 @@ type Result struct {
 	Merged *snapshot.Snapshot
 	// Questions holds every question the copies raise, answered or not, sorted by ID.
 	Questions []Question
-	// Report holds the events for the report, without any secret value, in a fixed order.
-	Report []Event
+	// Events holds the events for the Report, without any secret value, in a fixed order.
+	Events []Event
 	// Absorbed lists the entries of the copies that left the tree because a pair merged, now or
 	// in an earlier merge, sorted. All their versions are under the entry they went into.
 	Absorbed []Absorption
@@ -218,7 +218,7 @@ func (m *merger) finish() (*Result, error) {
 	return &Result{
 		Merged:       &merged,
 		Questions:    m.questions,
-		Report:       m.report,
+		Events:       m.report,
 		Absorbed:     m.absorptions(),
 		MergedGroups: m.mergedGroups(),
 		asked:        m.asked,

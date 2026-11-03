@@ -103,7 +103,7 @@ func TestACycleKeepsAllEntriesAndGoesInTheReport(t *testing.T) {
 		t.Errorf("stats = %+v", got)
 	}
 	var broken []merge.GroupCycleBroken
-	for _, event := range result.Report {
+	for _, event := range result.Events {
 		if b, ok := event.(merge.GroupCycleBroken); ok {
 			broken = append(broken, b)
 		}
@@ -240,8 +240,8 @@ func TestGroupsOnOnePathWithDifferentNotesStayApart(t *testing.T) {
 			t.Errorf("merged groups = %v, want none", result.MergedGroups)
 		}
 		want := merge.GroupsKeptApart{Name: "Work", Groups: []snapshot.UUID{groupA, groupB}}
-		if !slices.ContainsFunc(result.Report, func(e merge.Event) bool { return reflect.DeepEqual(e, want) }) {
-			t.Errorf("report = %s, want %+v", printed(result.Report), want)
+		if !slices.ContainsFunc(result.Events, func(e merge.Event) bool { return reflect.DeepEqual(e, want) }) {
+			t.Errorf("report = %s, want %+v", printed(result.Events), want)
 		}
 	}
 }
@@ -343,8 +343,8 @@ func TestAJoinGoesInTheReport(t *testing.T) {
 	result := mergeOf(t, tree(node(groupB, "Work", 1)), tree(node(groupA, "Work", 1)))
 
 	want := merge.GroupsJoined{Into: groupA, Name: "Work", Joined: []snapshot.UUID{groupB}}
-	if !slices.ContainsFunc(result.Report, func(e merge.Event) bool { return reflect.DeepEqual(e, want) }) {
-		t.Errorf("report = %s, want %+v", printed(result.Report), want)
+	if !slices.ContainsFunc(result.Events, func(e merge.Event) bool { return reflect.DeepEqual(e, want) }) {
+		t.Errorf("report = %s, want %+v", printed(result.Events), want)
 	}
 }
 

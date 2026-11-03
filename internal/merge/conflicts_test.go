@@ -287,7 +287,7 @@ func TestALabelHidesAProtectedTitle(t *testing.T) {
 
 func wantNoSecrets(t *testing.T, result *merge.Result, marker string) {
 	t.Helper()
-	if printed := printed(result.Questions) + printed(result.Report); strings.Contains(printed, marker) {
+	if printed := printed(result.Questions) + printed(result.Events); strings.Contains(printed, marker) {
 		t.Errorf("a secret value reached the questions or the report:\n%s", printed)
 	}
 }

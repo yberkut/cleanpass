@@ -125,10 +125,10 @@ func TestAnOldCopyWithAMergedEntryGetsAnEventAndARightLine(t *testing.T) {
 			Absorbed: []snapshot.UUID{secondID},
 			Copies:   []string{"old"},
 		}
-		if !slices.ContainsFunc(again.Report, func(e merge.Event) bool { return reflect.DeepEqual(e, want) }) {
-			t.Errorf("report = %s, want %+v", printed(again.Report), want)
+		if !slices.ContainsFunc(again.Events, func(e merge.Event) bool { return reflect.DeepEqual(e, want) }) {
+			t.Errorf("report = %s, want %+v", printed(again.Events), want)
 		}
-		for _, event := range again.Report {
+		for _, event := range again.Events {
 			change, ok := event.(merge.EntryChange)
 			if !ok {
 				continue
@@ -152,7 +152,7 @@ func TestAPairOfAnEarlierMergeIsNoNewsWithoutAnOldCopy(t *testing.T) {
 
 	again := mergeOf(t, result.Merged)
 
-	for _, event := range again.Report {
+	for _, event := range again.Events {
 		t.Errorf("the report tells %s", printed(event))
 	}
 }
@@ -166,7 +166,7 @@ func TestAPairOfADeletedEntryGivesNoEvent(t *testing.T) {
 
 	again := mergeOf(t, result.Merged, database(account(secondID, "Mail", "user", "", "two")))
 
-	for _, event := range again.Report {
+	for _, event := range again.Events {
 		if _, ok := event.(merge.PairRemembered); ok {
 			t.Errorf("the report tells %+v", event)
 		}
@@ -267,7 +267,7 @@ func TestAPairKeptApartStaysApartAlsoThroughAThirdEntry(t *testing.T) {
 		t.Errorf("%d entries, want 2: the first two stay apart", got)
 	}
 	notMerged := 0
-	for _, event := range merged.Report {
+	for _, event := range merged.Events {
 		if _, ok := event.(merge.PairNotMerged); ok {
 			notMerged++
 		}
@@ -315,12 +315,12 @@ func TestARejectedDeletionDoesNotAskAgain(t *testing.T) {
 
 func theDeletionChange(t *testing.T, result *merge.Result) merge.DeletionChange {
 	t.Helper()
-	for _, event := range result.Report {
+	for _, event := range result.Events {
 		if change, ok := event.(merge.DeletionChange); ok {
 			return change
 		}
 	}
-	t.Fatalf("no event about a deletion: %s", printed(result.Report))
+	t.Fatalf("no event about a deletion: %s", printed(result.Events))
 	return merge.DeletionChange{}
 }
 
@@ -625,7 +625,7 @@ func TestAnOldJoinIsNoNewsInTheReport(t *testing.T) {
 
 	again := mergeOf(t, result.Merged, old)
 
-	for _, event := range again.Report {
+	for _, event := range again.Events {
 		if _, ok := event.(merge.GroupsJoined); ok {
 			t.Errorf("the report tells %+v", event)
 		}

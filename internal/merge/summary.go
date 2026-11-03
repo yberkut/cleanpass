@@ -19,7 +19,7 @@ type Summary struct {
 // Summary counts over the same Input that gave this Result.
 func (r *Result) Summary(in Input) Summary {
 	var s Summary
-	for _, event := range r.Report {
+	for _, event := range r.Events {
 		switch e := event.(type) {
 		case EntryChange:
 			if e.Outcome == OutcomeNew {

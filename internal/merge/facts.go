@@ -38,7 +38,7 @@ type Facts struct {
 // Facts sorts the events and the questions by their kinds. It keeps the order of each kind.
 func (r *Result) Facts() Facts {
 	facts := Facts{Conflicts: map[snapshot.UUID]Conflict{}}
-	for _, event := range r.Report {
+	for _, event := range r.Events {
 		switch e := event.(type) {
 		case EntryChange:
 			facts.Entries = append(facts.Entries, e)

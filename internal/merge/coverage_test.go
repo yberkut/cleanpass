@@ -54,7 +54,7 @@ func TestScenariosReachEveryCase(t *testing.T) {
 				}
 			}
 		}
-		for _, event := range result.Report {
+		for _, event := range result.Events {
 			change, ok := event.(merge.EntryChange)
 			if !ok {
 				continue
@@ -109,7 +109,7 @@ func seeGroupCases(seen map[string]int, copies []merge.Copy, result *merge.Resul
 	if len(result.MergedGroups) > 0 {
 		seen["groups joined by their path"]++
 	}
-	for _, event := range result.Report {
+	for _, event := range result.Events {
 		if _, ok := event.(merge.GroupCycleBroken); ok {
 			seen["a cycle of groups"]++
 		}

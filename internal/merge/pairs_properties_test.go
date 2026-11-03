@@ -350,7 +350,7 @@ func TestPropertyNoSecretAfterAnswers(t *testing.T) {
 
 		result := runOn(t, in)
 
-		text := printed(result.Questions) + printed(result.Report) + printed(result.Absorbed)
+		text := printed(result.Questions) + printed(result.Events) + printed(result.Absorbed)
 		for _, marker := range []string{mergetest.SecretMarker, mergetest.CustomDataMarker} {
 			if strings.Contains(text, marker) {
 				t.Errorf("a value with the marker %s reached the questions or the report:\n%s", marker, text)

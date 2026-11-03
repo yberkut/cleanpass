@@ -19,7 +19,7 @@ import (
 func goneByTheMemory(result *merge.Result) []snapshot.UUID {
 	merged := allEntries(result.Merged)
 	var gone []snapshot.UUID
-	for _, event := range result.Report {
+	for _, event := range result.Events {
 		if change, ok := event.(merge.DeletionChange); ok && change.Remembered && change.Outcome == merge.DeletionApplied && merged[change.Entry] == nil {
 			gone = append(gone, change.Entry)
 		}
@@ -78,7 +78,7 @@ func TestPropertyAnOldUUIDIsNamedInTheReport(t *testing.T) {
 
 		events := map[snapshot.UUID]merge.PairRemembered{}
 		changes := map[snapshot.UUID]merge.EntryChange{}
-		for _, event := range again.Report {
+		for _, event := range again.Events {
 			switch e := event.(type) {
 			case merge.PairRemembered:
 				events[e.Entry] = e

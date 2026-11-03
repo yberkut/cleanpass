@@ -78,7 +78,7 @@ func TestTheSameInputGivesTheSameResult(t *testing.T) {
 
 	if printed(first.Questions) != printed(second.Questions) ||
 		printed(first.Merged.Root) != printed(second.Merged.Root) ||
-		printed(first.Report) != printed(second.Report) {
+		printed(first.Events) != printed(second.Events) {
 		t.Error("two runs on the same input differ")
 	}
 }
