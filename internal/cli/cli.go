@@ -13,6 +13,7 @@ import (
 	"github.com/yberkut/cleanpass/internal/challenge"
 	"github.com/yberkut/cleanpass/internal/gateway"
 	"github.com/yberkut/cleanpass/internal/interrupt"
+	"github.com/yberkut/cleanpass/internal/safewriter"
 	"github.com/yberkut/cleanpass/internal/session"
 	"github.com/yberkut/cleanpass/internal/text"
 )
@@ -39,6 +40,10 @@ func register(name string, run command) { commands[name] = run }
 
 // Run runs the tool and returns the exit code of the process.
 func Run(args []string, env Env) int {
+	// The faults for tests ship in the tool, behind one variable. A person who has it set must know.
+	if faults := os.Getenv(safewriter.FaultVariable); faults != "" {
+		fmt.Fprintln(env.Stderr, text.TestMode(safewriter.FaultVariable))
+	}
 	if len(args) == 0 {
 		fmt.Fprint(env.Stderr, text.Usage)
 		return exitError

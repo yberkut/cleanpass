@@ -37,3 +37,8 @@ func KDFKeyed(path string) string {
 func KDFLimits(path string) string {
 	return fmt.Sprintf("Параметри KDF бази %s неповні, незнайомі або виходять за межі, які тула вміє обробити. %s", path, kdfAdvice)
 }
+
+// TestMode warns that the variable of the faults for tests is set.
+func TestMode(variable string) string {
+	return fmt.Sprintf("!!! УВАГА: ТЕСТОВИЙ РЕЖИМ. Змінна %s вмикає збої для тестів: обрив запису, паузу, інший спосіб публікації і пошук KeePassXC без стандартних місць встановлення. Приберіть цю змінну, якщо ви не запускаєте тести. !!!", variable)
+}

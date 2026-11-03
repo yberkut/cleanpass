@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yberkut/cleanpass/internal/judge"
 	"github.com/yberkut/cleanpass/internal/safewriter"
 	"github.com/yberkut/cleanpass/internal/testkit"
 )
@@ -1091,6 +1092,22 @@ func TestAMergeWorksAfterACrashLeftATemporaryFile(t *testing.T) {
 	if _, err := os.Stat(left[0]); err != nil {
 		t.Errorf("the merge touched the temporary file of another run: %v", err)
 	}
+}
+
+// The faults for tests stop a write on purpose, change how a result is published, and hide an
+// installed KeePassXC from the Judge. They stay behind one variable, and a run with it says loudly
+// that it is a test.
+func TestARunWithTheFaultVariableSaysItIsATest(t *testing.T) {
+	t.Parallel()
+	const warning = "ТЕСТОВИЙ РЕЖИМ"
+	for _, fault := range []string{judge.FaultNoInstallPlaces, safewriter.FaultNoHardLink, safewriter.FaultCrashPrefix + safewriter.PointDone} {
+		got := testkit.RunWith(t, testkit.Options{Env: []string{safewriter.FaultVariable + "=" + fault}}, "--help")
+
+		wantCode(t, got, 0)
+		wantInOutput(t, got.Stderr, warning, safewriter.FaultVariable)
+		wantUkrainian(t, "", got.Stderr, safewriter.FaultVariable)
+	}
+	wantNotInOutput(t, testkit.Run(t, "", "--help").Stderr, warning)
 }
 
 // Without the special variable a run has no crash points. All tests above that expect a result
