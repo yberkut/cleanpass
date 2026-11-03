@@ -78,6 +78,44 @@ func TestManualCheckIsValidBash(t *testing.T) {
 	}
 }
 
+// The script ships in the release and says it sends nothing anywhere. So it holds no code that
+// could keep a value in a file or send it to GitHub, not even code nobody calls, and no text for the
+// person in another language than the tool's.
+func TestManualCheckHoldsNothingThatCouldStoreOrSendAValue(t *testing.T) {
+	t.Parallel()
+	script, err := os.ReadFile(manualCheckScript(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{
+		"gh secret", "gh variable", ".env", "ENV_FILE",
+		"Press Enter", "[y/N]", "Stage ", "Setup complete", "opening", "Ready to start", "Enter keeps current",
+		"krok",
+	} {
+		if bytes.Contains(script, []byte(text)) {
+			t.Errorf("the script holds %q", text)
+		}
+	}
+}
+
+// confirm is the one yes-or-no gate of the script, before real bases. A person may answer in
+// Ukrainian, and anything else is no.
+func TestManualCheckTakesAYesInUkrainian(t *testing.T) {
+	t.Parallel()
+	for answer, want := range map[string]bool{"так": true, "Т": true, "y": true, "Yes": true, "ні": false, "н": false, "n": false, "": false, "і": false} {
+		gate := `eval "$(sed -n '/^confirm() {/,/^}/p' "$1")"; confirm питання`
+		cmd := exec.Command(bashPath(t), "-c", gate, "bash", manualCheckScript(t))
+		cmd.Stdin = strings.NewReader(answer + "\n")
+		err := cmd.Run()
+		if _, isExit := err.(*exec.ExitError); err != nil && !isExit {
+			t.Fatal(err)
+		}
+		if got := err == nil; got != want {
+			t.Errorf("the answer %q gives yes = %v, want %v", answer, got, want)
+		}
+	}
+}
+
 // A program that a model starts has no terminal. The way to the master passwords stays closed.
 func TestManualCheckRefusesToRunWithoutATerminal(t *testing.T) {
 	t.Parallel()
