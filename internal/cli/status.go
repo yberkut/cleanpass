@@ -16,6 +16,7 @@ import (
 
 	"github.com/yberkut/cleanpass/internal/merge"
 	"github.com/yberkut/cleanpass/internal/report"
+	"github.com/yberkut/cleanpass/internal/safewriter"
 	"github.com/yberkut/cleanpass/internal/session"
 	"github.com/yberkut/cleanpass/internal/snapshot"
 	"github.com/yberkut/cleanpass/internal/text"
@@ -222,7 +223,7 @@ func distinctFiles(copies []session.Copy) ([]*distinctFile, string) {
 	var files []*distinctFile
 	byContent := map[[sha256.Size]byte]*distinctFile{}
 	for _, c := range copies {
-		content, err := hashOf(c.Path)
+		content, err := safewriter.HashFile(c.Path)
 		if err != nil {
 			return nil, describeFileError(c.Path, err)
 		}
@@ -237,19 +238,6 @@ func distinctFiles(copies []session.Copy) ([]*distinctFile, string) {
 	return files, ""
 }
 
-func hashOf(path string) (hash [sha256.Size]byte, err error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return hash, err
-	}
-	defer file.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, file); err != nil {
-		return hash, err
-	}
-	copy(hash[:], h.Sum(nil))
-	return hash, nil
-}
 
 // judge finds the files that already hold all that the copies hold together, and gives the merge
 // of all of them. The Merge Engine decides that, so a new rule of the engine counts here with no
@@ -294,12 +282,7 @@ func judge(files []*distinctFile, now time.Time) (*merge.Result, error) {
 // with two versions of the same time, the key of the run can put an older edit there, and that
 // one may lack its custom data in the history, as KeePassXC writes it on each edit.
 func keepsMainCustomData(copy, merged *snapshot.Snapshot) bool {
-	kept := map[snapshot.UUID]*snapshot.Entry{}
-	merged.Root.Walk(func(g *snapshot.Group) {
-		for i := range g.Entries {
-			kept[g.Entries[i].UUID] = &g.Entries[i]
-		}
-	})
+	kept := merged.Root.EntriesByUUID()
 	holds := true
 	copy.Root.Walk(func(g *snapshot.Group) {
 		for i := range g.Entries {

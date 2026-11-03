@@ -263,12 +263,7 @@ func newGroupName() (string, error) {
 // attachmentsDiffer names the first entry with other attachments, in any version, or gives an
 // empty string. The saved copy holds one group more, and that is all a save adds.
 func attachmentsDiffer(want, seen *snapshot.Snapshot) string {
-	entries := map[snapshot.UUID]*snapshot.Entry{}
-	seen.Root.Walk(func(g *snapshot.Group) {
-		for i := range g.Entries {
-			entries[g.Entries[i].UUID] = &g.Entries[i]
-		}
-	})
+	entries := seen.Root.EntriesByUUID()
 	place := ""
 	want.Root.Walk(func(g *snapshot.Group) {
 		for i := range g.Entries {

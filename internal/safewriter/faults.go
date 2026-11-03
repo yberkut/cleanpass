@@ -3,6 +3,7 @@ package safewriter
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 )
@@ -59,9 +60,18 @@ type faults struct {
 	noHardLink bool
 }
 
+// FaultIsOn says FaultVariable names this fault. Another package with a fault of its own reads the
+// variable here, so the variable has one form.
+func FaultIsOn(fault string) bool {
+	return slices.Contains(faultsInTheVariable(), fault)
+}
+
+// faultsInTheVariable gives the faults the variable names. Several go in it with commas.
+func faultsInTheVariable() []string { return strings.Split(os.Getenv(FaultVariable), ",") }
+
 func loadFaults() *faults {
 	result := &faults{}
-	for fault := range strings.SplitSeq(os.Getenv(FaultVariable), ",") {
+	for _, fault := range faultsInTheVariable() {
 		if point, isCrash := strings.CutPrefix(fault, FaultCrashPrefix); isCrash {
 			result.crashAt = point
 		}

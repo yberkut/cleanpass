@@ -176,7 +176,7 @@ func CheckTarget(target string, inputs []string) error {
 
 func checkInputs(inputs []Input) error {
 	for _, input := range inputs {
-		digest, err := hashFile(input.Path)
+		digest, err := HashFile(input.Path)
 		if err != nil {
 			return &InputChangedError{Path: input.Path, Cause: err}
 		}
@@ -187,7 +187,8 @@ func checkInputs(inputs []Input) error {
 	return nil
 }
 
-func hashFile(path string) (digest [sha256.Size]byte, err error) {
+// HashFile gives the SHA-256 of the bytes of a file, as step 2 of the protocol takes them.
+func HashFile(path string) (digest [sha256.Size]byte, err error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return digest, err

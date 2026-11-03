@@ -215,6 +215,18 @@ func (g *Group) Walk(visit func(*Group)) {
 	}
 }
 
+// EntriesByUUID gives every entry in this group and below it by its UUID. Of two entries with one
+// UUID the one found later counts.
+func (g *Group) EntriesByUUID() map[UUID]*Entry {
+	entries := map[UUID]*Entry{}
+	g.Walk(func(group *Group) {
+		for i := range group.Entries {
+			entries[group.Entries[i].UUID] = &group.Entries[i]
+		}
+	})
+	return entries
+}
+
 // Entry is an entry with its main version and its older versions.
 type Entry struct {
 	UUID UUID

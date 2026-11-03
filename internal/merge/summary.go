@@ -42,12 +42,7 @@ func (r *Result) Summary(in Input) Summary {
 // keptInHistory looks at the result itself: each version counts once, however many copies held it,
 // and only if the result really holds it in the history of the entry it now belongs to.
 func (r *Result) keptInHistory(in Input) int {
-	entries := map[snapshot.UUID]*snapshot.Entry{}
-	r.Merged.Root.Walk(func(g *snapshot.Group) {
-		for i := range g.Entries {
-			entries[g.Entries[i].UUID] = &g.Entries[i]
-		}
-	})
+	entries := r.Merged.Root.EntriesByUUID()
 	into := make(map[snapshot.UUID]snapshot.UUID, len(r.Absorbed))
 	for _, a := range r.Absorbed {
 		into[a.Absorbed] = a.Into

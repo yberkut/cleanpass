@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -76,7 +75,7 @@ func locate() string {
 			return absolute
 		}
 	}
-	if slices.Contains(strings.Split(os.Getenv(safewriter.FaultVariable), ","), FaultNoInstallPlaces) {
+	if safewriter.FaultIsOn(FaultNoInstallPlaces) {
 		return ""
 	}
 	for _, place := range installPlaces() {
