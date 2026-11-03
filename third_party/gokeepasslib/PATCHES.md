@@ -1,7 +1,17 @@
 # Local patches to gokeepasslib
 
 This folder is a copy of `github.com/tobischo/gokeepasslib/v3` at v3.7.1 (MIT, see `LICENSE.md`).
-The root `go.mod` connects it with `replace`. Only the KDBX Gateway (`internal/gateway`) may import it.
+The root `go.mod` connects it with `replace`.
+
+Who may import it, as `TestOnlyTheGatewayKnowsTheLibrary` in `cmd/cleanpass/structure_test.go` checks
+for the code and the tests of every package of the module:
+
+- the KDBX Gateway, `internal/gateway`, with its tests;
+- the test helpers in `internal/testkit`, which write test files without KeePassXC and read files
+  back. The spec allows test helpers on the library.
+
+No other package and no other test may import it. `TestToolDoesNotDependOnTheTestKit` checks that the
+built tool does not depend on `internal/testkit`, so in the tool only the Gateway reaches the library.
 
 The copy differs from upstream by this file, by the one patch below, and by line endings:
 `tests/schema/KDBX_XML_4.1.xsd` has CRLF upstream and LF here. Nothing else was changed.
