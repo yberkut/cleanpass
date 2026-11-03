@@ -327,7 +327,7 @@ func compareEntriesForTree(a, b snapshot.Entry) int {
 
 func titleOf(v *snapshot.EntryVersion) string {
 	for i := range v.Fields {
-		if v.Fields[i].Key == "Title" {
+		if v.Fields[i].Key == snapshot.FieldTitle {
 			return v.Fields[i].Value
 		}
 	}

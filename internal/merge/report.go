@@ -72,11 +72,11 @@ func labelOf(v *snapshot.EntryVersion) Label {
 			continue
 		}
 		switch f.Key {
-		case "Title":
+		case snapshot.FieldTitle:
 			label.Title = f.Value
-		case "UserName":
+		case snapshot.FieldUserName:
 			label.UserName = f.Value
-		case "URL":
+		case snapshot.FieldURL:
 			label.URL = f.Value
 		}
 	}

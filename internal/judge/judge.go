@@ -173,7 +173,7 @@ func attachmentsOf(root *snapshot.Group) attachmentPlan {
 // titleOf gives the title of a version and says whether it is protected.
 func titleOf(v *snapshot.EntryVersion) (title string, protected bool) {
 	for i := range v.Fields {
-		if v.Fields[i].Key == "Title" {
+		if v.Fields[i].Key == snapshot.FieldTitle {
 			return v.Fields[i].Value, v.Fields[i].Protected
 		}
 	}

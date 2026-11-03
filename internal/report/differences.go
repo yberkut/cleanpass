@@ -253,7 +253,7 @@ func (o *writer) pair(p *merge.SimilarPair) {
 	o.line("    ", text.PairCommon(p.SameTitleAndUser, p.SameUserAndHost, p.SamePassword, p.SameContent))
 	// The line above has told about the password, whatever the fields say.
 	other := p.Differences
-	other.Fields = slices.DeleteFunc(slices.Clone(other.Fields), func(field string) bool { return field == "Password" })
+	other.Fields = slices.DeleteFunc(slices.Clone(other.Fields), func(field string) bool { return field == snapshot.FieldPassword })
 	if names := differenceNames(other); !p.SameContent && len(names) > 0 {
 		o.line("    ", text.PairDiffers(names))
 	}

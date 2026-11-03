@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/yberkut/cleanpass/internal/snapshot"
 )
 
 // The start of the dialog and the words that work at any question.
@@ -148,19 +150,21 @@ func ShowableField(number int, holder, name string) string {
 	return numbered(number, holder+": "+FieldName(name))
 }
 
+// standardFields gives each standard field of an entry its name for a person, and the words that
+// say it differs. A value can be shown in full, so the name says so for the URL: the report
+// shows only its host.
+var standardFields = map[string]struct{ name, differs string }{
+	snapshot.FieldTitle:    {"назва", "назва різна"},
+	snapshot.FieldUserName: {"логін", "логін різний"},
+	snapshot.FieldPassword: {"пароль", "пароль різний"},
+	snapshot.FieldURL:      {"повний URL", "URL різний"},
+	snapshot.FieldNotes:    {"нотатки", "нотатки різні"},
+}
+
 // FieldName gives the name of a string field for a person.
 func FieldName(name string) string {
-	switch name {
-	case "Title":
-		return "назва"
-	case "UserName":
-		return "логін"
-	case "Password":
-		return "пароль"
-	case "URL":
-		return "повний URL"
-	case "Notes":
-		return "нотатки"
+	if field, standard := standardFields[name]; standard {
+		return field.name
 	}
 	return "поле «" + name + "»"
 }

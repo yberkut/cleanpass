@@ -125,17 +125,8 @@ func DiffersFromMainVersion(differences []string) string {
 
 // FieldDiffers says that a string field differs. This is all the report says about a secret.
 func FieldDiffers(name string) string {
-	switch name {
-	case "Title":
-		return "назва різна"
-	case "UserName":
-		return "логін різний"
-	case "Password":
-		return "пароль різний"
-	case "URL":
-		return "URL різний"
-	case "Notes":
-		return "нотатки різні"
+	if field, standard := standardFields[name]; standard {
+		return field.differs
 	}
 	return fmt.Sprintf("поле «%s» різне", name)
 }

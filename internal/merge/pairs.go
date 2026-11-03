@@ -329,7 +329,7 @@ func (e *entryState) pairSide() PairSide {
 
 func passwordOf(v *snapshot.EntryVersion) string {
 	for i := range v.Fields {
-		if v.Fields[i].Key == "Password" {
+		if v.Fields[i].Key == snapshot.FieldPassword {
 			return v.Fields[i].Value
 		}
 	}

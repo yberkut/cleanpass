@@ -152,7 +152,7 @@ func showablesOf(q *merge.Question, result *merge.Result) []showableValue {
 	for i := range versions {
 		holder := holderOf(q, i)
 		for _, field := range versions[i].Fields {
-			if field.Value == "" || (!field.Protected && (field.Key == "Title" || field.Key == "UserName")) {
+			if field.Value == "" || (!field.Protected && (field.Key == snapshot.FieldTitle || field.Key == snapshot.FieldUserName)) {
 				continue
 			}
 			list = append(list, showableValue{holder: holder, field: field.Key, value: field.Value})

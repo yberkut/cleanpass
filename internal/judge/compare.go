@@ -224,11 +224,11 @@ func (v viewer) fields(fields []snapshot.Field) []snapshot.Field {
 	result := slices.Clone(fields)
 	if v.rules != nil {
 		protection := map[string]bool{
-			"Title":    v.rules.protection.Title,
-			"UserName": v.rules.protection.UserName,
-			"Password": v.rules.protection.Password,
-			"URL":      v.rules.protection.URL,
-			"Notes":    v.rules.protection.Notes,
+			snapshot.FieldTitle:    v.rules.protection.Title,
+			snapshot.FieldUserName: v.rules.protection.UserName,
+			snapshot.FieldPassword: v.rules.protection.Password,
+			snapshot.FieldURL:      v.rules.protection.URL,
+			snapshot.FieldNotes:    v.rules.protection.Notes,
 		}
 		for key := range protection {
 			if !slices.ContainsFunc(result, func(f snapshot.Field) bool { return f.Key == key }) {

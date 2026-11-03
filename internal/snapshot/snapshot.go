@@ -215,6 +215,15 @@ func (g *Group) Walk(visit func(*Group)) {
 	}
 }
 
+// The keys of the standard fields of an entry, as KeePassXC writes them.
+const (
+	FieldTitle    = "Title"
+	FieldUserName = "UserName"
+	FieldPassword = "Password"
+	FieldURL      = "URL"
+	FieldNotes    = "Notes"
+)
+
 // EntriesByUUID gives every entry in this group and below it by its UUID. Of two entries with one
 // UUID the one found later counts.
 func (g *Group) EntriesByUUID() map[UUID]*Entry {
