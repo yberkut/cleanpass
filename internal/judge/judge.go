@@ -138,6 +138,9 @@ type attachmentPlan struct {
 // attachmentsOf sorts the attachments by what can read them. The program reads attachments of
 // main versions only, and it finds an entry by its path: of two entries on one path it takes the
 // first. The walk below goes in the order of that search. The other attachments wait for a save.
+//
+// The path is an argument of the program, and other programs can read the arguments of a process.
+// So an entry with a protected title waits for the save too: its path holds a secret.
 func attachmentsOf(root *snapshot.Group) attachmentPlan {
 	var plan attachmentPlan
 	taken := map[string]bool{}
@@ -145,8 +148,9 @@ func attachmentsOf(root *snapshot.Group) attachmentPlan {
 	walk = func(g *snapshot.Group, base string) {
 		for i := range g.Entries {
 			entry := &g.Entries[i]
-			path := base + titleOf(&entry.EntryVersion)
-			if taken[path] {
+			title, protected := titleOf(&entry.EntryVersion)
+			path := base + title
+			if taken[path] || protected {
 				plan.needSave = plan.needSave || len(entry.Attachments) > 0
 			} else {
 				for _, ref := range entry.Attachments {
@@ -166,13 +170,14 @@ func attachmentsOf(root *snapshot.Group) attachmentPlan {
 	return plan
 }
 
-func titleOf(v *snapshot.EntryVersion) string {
+// titleOf gives the title of a version and says whether it is protected.
+func titleOf(v *snapshot.EntryVersion) (title string, protected bool) {
 	for i := range v.Fields {
 		if v.Fields[i].Key == "Title" {
-			return v.Fields[i].Value
+			return v.Fields[i].Value, v.Fields[i].Protected
 		}
 	}
-	return ""
+	return "", false
 }
 
 // checkBytes compares the bytes of one attachment as the program reads them. The bytes come

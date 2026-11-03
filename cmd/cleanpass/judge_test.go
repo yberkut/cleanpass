@@ -323,6 +323,36 @@ func TestThePasswordGoesToKeePassXCOnlyThroughStdin(t *testing.T) {
 	}
 }
 
+// A person can protect a title, and then it is a secret. Other programs on the system can read the
+// arguments of a process, so the Judge reads the attachments of such an entry through a save.
+func TestTheJudgeNeverPutsAProtectedTitleIntoAnArgument(t *testing.T) {
+	t.Parallel()
+	const marker = "PROTECTED-TITLE-MARKER"
+	dir := t.TempDir()
+	xml := replaced(t, mergeableXML(), "<Value>Друге</Value>", `<Value ProtectInMemory="True">Друге `+marker+`</Value>`)
+	a := testkit.DB{Path: filepath.Join(dir, "a.kdbx"), Password: testkit.Password}.Import(t, xml)
+	fake := testkit.NewFakeCLI(t, testkit.FakePlan{})
+
+	got := testkit.RunWith(t, testkit.Options{Stdin: passwordLines(1), Env: fake.Env()}, "merge", a.Path, "--output", filepath.Join(dir, "new.kdbx"))
+
+	wantJudged(t, got)
+	for _, call := range fake.Calls(t) {
+		for _, argument := range call.Args {
+			if strings.Contains(argument, marker) {
+				t.Errorf("%s has the protected title in an argument", call.Args[0])
+			}
+		}
+		for _, variable := range call.Env {
+			if strings.Contains(variable, marker) {
+				t.Errorf("%s has the protected title in the environment", call.Args[0])
+			}
+		}
+	}
+	if commandsOf(t, fake)["mkdir"] == 0 {
+		t.Error("no save read the attachments of the entry with the protected title")
+	}
+}
+
 // The keys of a result differ from copy to copy, and the real program must open each kind.
 func TestTheJudgeOpensAResultWithEveryKindOfKeys(t *testing.T) {
 	t.Parallel()
