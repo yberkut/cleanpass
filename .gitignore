@@ -1,0 +1,11 @@
+# Build output
+/cleanpass
+/cleanpass.exe
+/dist/
+/bin/
+*.exe
+*.test
+*.out
+
+# Claude Code agent worktrees
+.claude/worktrees/

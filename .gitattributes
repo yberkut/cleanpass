@@ -1,0 +1,6 @@
+# Text stays LF on every OS. Test data and the library copy depend on exact bytes.
+* text=auto eol=lf
+
+*.kdbx binary
+*.key binary
+*.bin binary

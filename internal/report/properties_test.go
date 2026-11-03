@@ -1,0 +1,288 @@
+package report_test
+
+import (
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"pgregory.net/rapid"
+
+	"github.com/yberkut/cleanpass/internal/merge"
+	"github.com/yberkut/cleanpass/internal/merge/mergetest"
+	"github.com/yberkut/cleanpass/internal/report"
+	"github.com/yberkut/cleanpass/internal/snapshot"
+)
+
+// withSecretsEverywhere puts generated secret values into every part of every version of the
+// scenario that a report might show, beside the passwords the generator already marks. Each new
+// value follows from the old one, so two versions stay equal or different as they were.
+func withSecretsEverywhere(s mergetest.Scenario) {
+	marker := mergetest.SecretMarker
+	mark := func(v *snapshot.EntryVersion) {
+		// All entries with one of the titles hold their label as protected values, so the label
+		// shows nothing of them. The others still give pairs.
+		protectLabel := slices.ContainsFunc(v.Fields, func(f snapshot.Field) bool { return f.Key == "Title" && f.Value == "Git" })
+		for i := range v.Fields {
+			f := &v.Fields[i]
+			switch {
+			case protectLabel && (f.Key == "Title" || f.Key == "UserName" || f.Key == "URL"):
+				f.Value, f.Protected = marker+f.Value, true
+			case f.Key == "Notes" || f.Key == "Custom":
+				f.Value = marker + f.Value
+			case f.Key == "URL" && f.Value != "":
+				// The host stays, so the entries still pair by it. All the rest is secret.
+				f.Value = strings.Replace(f.Value, "https://", "https://me:"+marker+"url@", 1) + "?token=" + marker + "query"
+			}
+		}
+		v.Fields = append(v.Fields,
+			snapshot.Field{Key: "Open", Value: marker + "open"},
+			snapshot.Field{Key: "Closed", Value: marker + "closed", Protected: true},
+		)
+		v.Tags += ";" + marker + "tag"
+		v.OverrideURL = marker + "override"
+		v.AutoType.DefaultSequence = marker + "sequence"
+		v.AutoType.Associations = append(v.AutoType.Associations, snapshot.AutoTypeAssociation{Window: marker + "window", KeystrokeSequence: marker + "keys"})
+		v.CustomData = append(v.CustomData, snapshot.CustomDataItem{Key: "extension", Value: marker + "data"})
+		for i := range v.Attachments {
+			v.Attachments[i].Name = marker + "name"
+		}
+	}
+	for i := range s.Copies {
+		s.Copies[i].Snapshot.Root.Walk(func(g *snapshot.Group) {
+			g.Notes = marker + "group"
+			for j := range g.Entries {
+				e := &g.Entries[j]
+				mark(&e.EntryVersion)
+				for k := range e.History {
+					mark(&e.History[k])
+				}
+			}
+		})
+	}
+}
+
+var key = merge.Key{1, 2, 3}
+
+func reportOf(t rapid.TB, copies []merge.Copy, now time.Time) (string, merge.Facts) {
+	t.Helper()
+	result, err := merge.Run(merge.Input{Copies: copies, Now: now, Key: key})
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := result.Facts()
+	var out strings.Builder
+	if err := report.WriteDifferences(&out, facts); err != nil {
+		t.Fatal(err)
+	}
+	return out.String(), facts
+}
+
+// reportWithMemory merges with these answers and reports on the result beside an old copy, so
+// the report shows what the memory of the decisions has settled.
+func reportWithMemory(t rapid.TB, s mergetest.Scenario, answer func(i int, q merge.Question) int, old merge.Copy) (string, merge.Facts) {
+	t.Helper()
+	in := merge.Input{Copies: s.Copies, Now: s.Now, Key: key}
+	asked, err := merge.Run(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, q := range asked.Questions {
+		in.Decisions = append(in.Decisions, merge.Decision{Question: q.ID, Choice: answer(i, q)})
+	}
+	first, err := merge.Run(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return reportOf(t, []merge.Copy{{Name: "result", Snapshot: first.Merged}, old}, s.Now)
+}
+
+// "Без секретів у звіті" from the spec: for the copies as they are, and for a result beside an old
+// copy, where the memory of the decisions has its say.
+func TestPropertyNoSecretsInTheReport(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		s := mergetest.Scenarios().Draw(t, "scenario")
+		withSecretsEverywhere(s)
+
+		text, facts := reportOf(t, s.Copies, s.Now)
+		answer := func(_ int, q merge.Question) int { return rapid.IntRange(0, q.Choices-1).Draw(t, "answer") }
+		withMemory, factsWithMemory := reportWithMemory(t, s, answer, rapid.SampledFrom(s.Copies).Draw(t, "old copy"))
+
+		for _, report := range []string{text, withMemory} {
+			if strings.Contains(report, mergetest.SecretMarker) {
+				t.Fatalf("the report holds a secret value:\n%s", report)
+			}
+		}
+		if facts.Unknown+factsWithMemory.Unknown != 0 {
+			t.Fatalf("the report cannot show %d events or questions:\n%s\n%s", facts.Unknown+factsWithMemory.Unknown, text, withMemory)
+		}
+	})
+}
+
+// dialogOf writes all a person sees of a merge with these answers: each question before the answers,
+// and what came of them after.
+func dialogOf(t rapid.TB, in merge.Input, answer func(i int, q merge.Question) int) (string, merge.Facts) {
+	t.Helper()
+	asked, err := merge.Run(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	for i, q := range asked.Questions {
+		var err error
+		switch detail := q.Detail.(type) {
+		case merge.Conflict:
+			err = report.WriteConflictQuestion(&out, detail)
+		case merge.Deletion:
+			err = report.WriteDeletionQuestion(&out, detail)
+		case merge.SimilarPair:
+			err = report.WritePairQuestion(&out, detail)
+		case merge.IdenticalPairs:
+			err = report.WriteIdenticalPairsQuestion(&out, len(detail.Pairs))
+		default:
+			t.Fatalf("no words for a question of the type %T", q.Detail)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		in.Decisions = append(in.Decisions, merge.Decision{Question: q.ID, Choice: answer(i, q)})
+	}
+	answered, err := merge.Run(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := answered.Facts()
+	for _, write := range []func() error{
+		func() error { return report.WritePairsAnswered(&out, facts) },
+		func() error { return report.WriteDifferences(&out, facts) },
+		func() error { return report.WriteSummary(&out, answered.Summary(in)) },
+	} {
+		if err := write(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return out.String(), facts
+}
+
+// The questions and the words after the answers hold a person's data too, so the same rule holds.
+func TestPropertyNoSecretsInTheDialog(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		s := mergetest.Scenarios().Draw(t, "scenario")
+		withSecretsEverywhere(s)
+		answer := func(_ int, q merge.Question) int { return rapid.IntRange(0, q.Choices-1).Draw(t, "answer") }
+
+		text, facts := dialogOf(t, merge.Input{Copies: s.Copies, Now: s.Now, Key: key}, answer)
+
+		if strings.Contains(text, mergetest.SecretMarker) {
+			t.Fatalf("the dialog holds a secret value:\n%s", text)
+		}
+		if facts.Unknown != 0 {
+			t.Fatalf("the report cannot show %d events or questions after answers:\n%s", facts.Unknown, text)
+		}
+	})
+}
+
+func TestScenariosFillEveryPartOfTheDialog(t *testing.T) {
+	seen := map[string]int{}
+	phrases := []string{
+		"Версії запису сперечаються:", "Різниця менша за 24 години", "Одна з версій має дату з майбутнього", "Найновіша за часом версія вже замінена",
+		"так буде і без відповіді", "відрізняється від версії 1:", "головна в: ",
+		"Запис видалено в одній копії", "лишити запис", "видалити запис", "він лишиться в кошику з усіма версіями",
+		"Схожі записи з різними UUID:", "лишити обидва записи", "злити в один запис",
+		"Пар схожих записів з однаковим вмістом", "вирішувати кожну пару окремо", "злити всі такі пари",
+		"Злиті схожі записи.", "сюди злито записів:",
+		"Підсумок:", "Додано записів", "Оновлено записів", "Збережено в історії", "Видалено записів за вашим рішенням", "Злито схожих записів в інші",
+	}
+	for i := range 500 {
+		s := mergetest.Scenarios().Example(i)
+		withSecretsEverywhere(s)
+		text, _ := dialogOf(t, merge.Input{Copies: s.Copies, Now: s.Now, Key: key}, func(n int, q merge.Question) int { return (i + n) % q.Choices })
+		for _, phrase := range phrases {
+			if strings.Contains(text, phrase) {
+				seen[phrase]++
+			}
+		}
+	}
+	t.Logf("scenarios with each phrase: %v", seen)
+	for _, phrase := range phrases {
+		if seen[phrase] == 0 {
+			t.Errorf("no scenario reaches %q", phrase)
+		}
+	}
+}
+
+// A property says nothing about a part of the report it never fills. So this counts the phrases
+// over a fixed set of scenarios, with the same secrets as above.
+func TestScenariosFillEveryPartOfTheReport(t *testing.T) {
+	seen := map[string]int{}
+	phrases := []string{
+		"Записи лише в частині копій", "Копія відстає", "Версії сперечаються", "Видалення:", "Схожі записи",
+		"Пар з однаковим вмістом",
+		"Різниця 24 години або більше", "Різниця менша за 24 години", "Одна з версій має дату з майбутнього", "Увага: збитий годинник",
+		"запису немає", "ця версія є в історії іншої копії", "цієї версії немає в історії інших копій", "вміст як у версії, що стане головною",
+		"пароль різний", "назва різна", "логін різний", "URL різний", "нотатки різні", "поле «Custom» різне", "значок різний", "кольори різні", "теги різні",
+		"вкладення різні", "Auto-Type різний", "дані розширень різні",
+		"Запис про видалення:", "У кошику:", "Поза кошиком:", "Видалено ",
+		"Спільне: назва і логін", "логін і сайт", "пароль однаковий", "вміст однаковий", "Відрізняється:", "Перший запис:", "Другий запис:",
+		"(без назви, UUID", "логін: ", "сайт: ",
+		"Групи.", "об'єднається ще груп", "зациклили групи",
+		"Під час злиття буде питання, а без відповіді запис лишиться", "ви вже вирішили лишити цей запис", "ви вже вирішили видалити цей запис",
+		"ви вже вирішили лишити її головною",
+	}
+	for i := range 500 {
+		s := mergetest.Scenarios().Example(i)
+		withSecretsEverywhere(s)
+		text, _ := reportOf(t, s.Copies, s.Now)
+		withMemory, _ := reportWithMemory(t, s, func(n int, q merge.Question) int { return (i + n) % q.Choices }, s.Copies[i%len(s.Copies)])
+		for _, phrase := range phrases {
+			if strings.Contains(text, phrase) || strings.Contains(withMemory, phrase) {
+				seen[phrase]++
+			}
+		}
+	}
+	t.Logf("scenarios with each phrase: %v", seen)
+	for _, phrase := range phrases {
+		if seen[phrase] == 0 {
+			t.Errorf("no scenario reaches %q", phrase)
+		}
+	}
+}
+
+// The generator does not change these parts of a version, so a plain table keeps them honest.
+func TestEveryAttributeHasItsOwnWords(t *testing.T) {
+	for attribute, want := range map[merge.Attribute]string{
+		merge.AttributeIcon:         "значок різний",
+		merge.AttributeColors:       "кольори різні",
+		merge.AttributeOverrideURL:  "перевизначення URL різне",
+		merge.AttributeQualityCheck: "перевірка якості різна",
+		merge.AttributeTags:         "теги різні",
+		merge.AttributeCreation:     "дата створення різна",
+		merge.AttributeExpiry:       "термін дії різний",
+		merge.AttributeAttachments:  "вкладення різні",
+		merge.AttributeAutoType:     "Auto-Type різний",
+		merge.AttributeCustomData:   "дані розширень різні",
+	} {
+		var out strings.Builder
+		err := report.WriteDifferences(&out, merge.Facts{Entries: []merge.EntryChange{{
+			Outcome: merge.OutcomeUpdated,
+			Copies:  []merge.CopyState{{Name: "copy", Holds: true, Differences: merge.Difference{Attributes: []merge.Attribute{attribute}}}},
+		}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out.String(), ": "+want+"\n") {
+			t.Errorf("attribute %d: no %q in:\n%s", attribute, want, out.String())
+		}
+	}
+}
+
+// A new kind of event must not disappear without a word.
+func TestTheReportSaysSoWhenItCannotShowSomething(t *testing.T) {
+	var out strings.Builder
+	if err := report.WriteDifferences(&out, merge.Facts{Unknown: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "яких цей звіт не вміє показати: 2") {
+		t.Errorf("no word about what is missing:\n%s", out.String())
+	}
+}

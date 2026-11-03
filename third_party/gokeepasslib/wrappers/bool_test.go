@@ -1,0 +1,461 @@
+package wrappers
+
+import (
+	"encoding/xml"
+	"errors"
+	"testing"
+)
+
+// The marshalling methods use value receivers, so that they are also used when
+// a struct containing a wrapper is marshalled by value. The method set of the
+// pointer type includes them as well, so both keep satisfying the interfaces.
+var (
+	_ xml.Marshaler       = BoolWrapper{}
+	_ xml.Marshaler       = &BoolWrapper{}
+	_ xml.MarshalerAttr   = BoolWrapper{}
+	_ xml.MarshalerAttr   = &BoolWrapper{}
+	_ xml.Unmarshaler     = &BoolWrapper{}
+	_ xml.UnmarshalerAttr = &BoolWrapper{}
+
+	_ xml.Marshaler       = NullableBoolWrapper{}
+	_ xml.Marshaler       = &NullableBoolWrapper{}
+	_ xml.MarshalerAttr   = NullableBoolWrapper{}
+	_ xml.MarshalerAttr   = &NullableBoolWrapper{}
+	_ xml.Unmarshaler     = &NullableBoolWrapper{}
+	_ xml.UnmarshalerAttr = &NullableBoolWrapper{}
+)
+
+func TestBoolWrapperUnmarshalXML(t *testing.T) {
+	cases := []struct {
+		title    string
+		value    string
+		expValue bool
+		expErr   error
+	}{
+		{
+			title:    "lowercase true",
+			value:    `<Wrap><Val>true</Val></Wrap>`,
+			expValue: true,
+			expErr:   nil,
+		},
+		{
+			title:    "mixedcase true",
+			value:    `<Wrap><Val>TrUe</Val></Wrap>`,
+			expValue: true,
+			expErr:   nil,
+		},
+		{
+			title:    "value is '1'",
+			value:    `<Wrap><Val>1</Val></Wrap>`,
+			expValue: true,
+			expErr:   nil,
+		},
+		{
+			title:    "value is 'enabled'",
+			value:    `<Wrap><Val>enabled</Val></Wrap>`,
+			expValue: true,
+			expErr:   nil,
+		},
+		{
+			title:    "value is 'checked'",
+			value:    `<Wrap><Val>checked</Val></Wrap>`,
+			expValue: true,
+			expErr:   nil,
+		},
+		{
+			title:    "value is 'yes'",
+			value:    `<Wrap><Val>yes</Val></Wrap>`,
+			expValue: true,
+			expErr:   nil,
+		},
+		{
+			title:    "lowercase false",
+			value:    `<Wrap><Val>false</Val></Wrap>`,
+			expValue: false,
+			expErr:   nil,
+		},
+		{
+			title:    "mixedcase false",
+			value:    `<Wrap><Val>FaLsE</Val></Wrap>`,
+			expValue: false,
+			expErr:   nil,
+		},
+		{
+			title:    "null value",
+			value:    `<Wrap><Val>null</Val></Wrap>`,
+			expValue: false,
+			expErr:   nil,
+		},
+		{
+			title:    "not set at all",
+			value:    `<Wrap></Wrap>`,
+			expValue: false,
+			expErr:   nil,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.title, func(t *testing.T) {
+			var x struct {
+				Val BoolWrapper `xml:"Val"`
+			}
+			err := xml.Unmarshal([]byte(c.value), &x)
+
+			if !errors.Is(err, c.expErr) {
+				t.Fatalf("Did not receive expected error %+v, received %+v", c.expErr, err)
+			}
+			if x.Val.Bool != c.expValue {
+				t.Errorf("Did not receive expected value '%+v', received: '%+v'", c.expValue, x.Val.Bool)
+			}
+		})
+	}
+}
+
+func TestBoolWrapperUnmarshalXMLAttr(t *testing.T) {
+	cases := []struct {
+		title    string
+		value    string
+		expValue bool
+		expErr   error
+	}{
+		{
+			title:    "lowercase true",
+			value:    `<Wrap><Val v="true"></Val></Wrap>`,
+			expValue: true,
+			expErr:   nil,
+		},
+		{
+			title:    "mixedcase true",
+			value:    `<Wrap><Val v="TrUe"></Val></Wrap>`,
+			expValue: true,
+			expErr:   nil,
+		},
+		{
+			title:    "value is '1'",
+			value:    `<Wrap><Val v="1"></Val></Wrap>`,
+			expValue: true,
+			expErr:   nil,
+		},
+		{
+			title:    "value is 'enabled'",
+			value:    `<Wrap><Val v="enabled"></Val></Wrap>`,
+			expValue: true,
+			expErr:   nil,
+		},
+		{
+			title:    "value is 'checked'",
+			value:    `<Wrap><Val v="checked"></Val></Wrap>`,
+			expValue: true,
+			expErr:   nil,
+		},
+		{
+			title:    "value is 'yes'",
+			value:    `<Wrap><Val v="yes"></Val></Wrap>`,
+			expValue: true,
+			expErr:   nil,
+		},
+		{
+			title:    "lowercase false",
+			value:    `<Wrap><Val v="false"></Val></Wrap>`,
+			expValue: false,
+			expErr:   nil,
+		},
+		{
+			title:    "mixedcase false",
+			value:    `<Wrap><Val v="FaLsE"></Val></Wrap>`,
+			expValue: false,
+			expErr:   nil,
+		},
+		{
+			title:    "null value",
+			value:    `<Wrap><Val v="null"></Val></Wrap>`,
+			expValue: false,
+			expErr:   nil,
+		},
+		{
+			title:    "when it is not set at all",
+			value:    `<Wrap><Val ></Val></Wrap>`,
+			expValue: false,
+			expErr:   nil,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.title, func(t *testing.T) {
+			var x struct {
+				Val struct {
+					Content string      `xml:",chardata"`
+					V       BoolWrapper `xml:"v,attr,omitempty"`
+				}
+			}
+			err := xml.Unmarshal([]byte(c.value), &x)
+
+			if !errors.Is(err, c.expErr) {
+				t.Fatalf("Did not receive expected error %+v, received %+v", c.expErr, err)
+			}
+			if x.Val.V.Bool != c.expValue {
+				t.Errorf("Did not receive expected value '%+v', received: '%+v'", c.expValue, x.Val.V.Bool)
+			}
+		})
+	}
+}
+
+func TestNullableBoolWrapperUnmarshalXML(t *testing.T) {
+	cases := []struct {
+		title    string
+		value    string
+		expValue bool
+		expValid bool
+		expErr   error
+	}{
+		{
+			title:    "lowercase true",
+			value:    `<Wrap><Val>true</Val></Wrap>`,
+			expValue: true,
+			expValid: true,
+			expErr:   nil,
+		},
+		{
+			title:    "mixedcase true",
+			value:    `<Wrap><Val>TrUe</Val></Wrap>`,
+			expValue: true,
+			expValid: true,
+			expErr:   nil,
+		},
+		{
+			title:    "value is '1'",
+			value:    `<Wrap><Val>1</Val></Wrap>`,
+			expValue: true,
+			expValid: true,
+			expErr:   nil,
+		},
+		{
+			title:    "value is 'enabled'",
+			value:    `<Wrap><Val>enabled</Val></Wrap>`,
+			expValue: true,
+			expValid: true,
+			expErr:   nil,
+		},
+		{
+			title:    "value is 'checked'",
+			value:    `<Wrap><Val>checked</Val></Wrap>`,
+			expValue: true,
+			expValid: true,
+			expErr:   nil,
+		},
+		{
+			title:    "value is 'yes'",
+			value:    `<Wrap><Val>yes</Val></Wrap>`,
+			expValue: true,
+			expValid: true,
+			expErr:   nil,
+		},
+		{
+			title:    "lowercase false",
+			value:    `<Wrap><Val>false</Val></Wrap>`,
+			expValue: false,
+			expValid: true,
+			expErr:   nil,
+		},
+		{
+			title:    "mixedcase false",
+			value:    `<Wrap><Val>FaLsE</Val></Wrap>`,
+			expValue: false,
+			expValid: true,
+			expErr:   nil,
+		},
+		{
+			title:    "null value",
+			value:    `<Wrap><Val>null</Val></Wrap>`,
+			expValue: false,
+			expValid: false,
+			expErr:   nil,
+		},
+		{
+			title:    "not set at all",
+			value:    `<Wrap></Wrap>`,
+			expValue: false,
+			expValid: false,
+			expErr:   nil,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.title, func(t *testing.T) {
+			var x struct {
+				Val NullableBoolWrapper `xml:"Val"`
+			}
+			err := xml.Unmarshal([]byte(c.value), &x)
+
+			if !errors.Is(err, c.expErr) {
+				t.Fatalf("Did not receive expected error %+v, received %+v", c.expErr, err)
+			}
+			if x.Val.Bool != c.expValue {
+				t.Errorf("Did not receive expected value '%+v', received: '%+v'", c.expValue, x.Val.Bool)
+			}
+			if x.Val.Valid != c.expValid {
+				t.Errorf("Did not receive expected value '%+v', received: '%+v'", c.expValid, x.Val.Valid)
+			}
+		})
+	}
+}
+
+func TestNullableBoolWrapperUnmarshalXMLAttr(t *testing.T) {
+	cases := []struct {
+		title    string
+		value    string
+		expValue bool
+		expValid bool
+		expErr   error
+	}{
+		{
+			title:    "lowercase true",
+			value:    `<Wrap><Val v="true"></Val></Wrap>`,
+			expValue: true,
+			expValid: true,
+			expErr:   nil,
+		},
+		{
+			title:    "mixedcase true",
+			value:    `<Wrap><Val v="TrUe"></Val></Wrap>`,
+			expValue: true,
+			expValid: true,
+			expErr:   nil,
+		},
+		{
+			title:    "value is '1'",
+			value:    `<Wrap><Val v="1"></Val></Wrap>`,
+			expValue: true,
+			expValid: true,
+			expErr:   nil,
+		},
+		{
+			title:    "value is 'enabled'",
+			value:    `<Wrap><Val v="enabled"></Val></Wrap>`,
+			expValue: true,
+			expValid: true,
+			expErr:   nil,
+		},
+		{
+			title:    "value is 'checked'",
+			value:    `<Wrap><Val v="checked"></Val></Wrap>`,
+			expValue: true,
+			expValid: true,
+			expErr:   nil,
+		},
+		{
+			title:    "value is 'yes'",
+			value:    `<Wrap><Val v="yes"></Val></Wrap>`,
+			expValue: true,
+			expValid: true,
+			expErr:   nil,
+		},
+		{
+			title:    "lowercase false",
+			value:    `<Wrap><Val v="false"></Val></Wrap>`,
+			expValue: false,
+			expValid: true,
+			expErr:   nil,
+		},
+		{
+			title:    "mixedcase false",
+			value:    `<Wrap><Val v="FaLsE"></Val></Wrap>`,
+			expValue: false,
+			expValid: true,
+			expErr:   nil,
+		},
+		{
+			title:    "null value",
+			value:    `<Wrap><Val v="null"></Val></Wrap>`,
+			expValue: false,
+			expValid: false,
+			expErr:   nil,
+		},
+		{
+			title:    "when it is not set at all",
+			value:    `<Wrap><Val ></Val></Wrap>`,
+			expValue: false,
+			expValid: false,
+			expErr:   nil,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.title, func(t *testing.T) {
+			var x struct {
+				Val struct {
+					Content string              `xml:",chardata"`
+					V       NullableBoolWrapper `xml:"v,attr,omitempty"`
+				}
+			}
+			err := xml.Unmarshal([]byte(c.value), &x)
+
+			if !errors.Is(err, c.expErr) {
+				t.Fatalf("Did not receive expected error %+v, received %+v", c.expErr, err)
+			}
+			if x.Val.V.Bool != c.expValue {
+				t.Errorf("Did not receive expected value '%+v', received: '%+v'", c.expValue, x.Val.V.Bool)
+			}
+
+			if x.Val.V.Valid != c.expValid {
+				t.Errorf("Did not receive expected value '%+v', received: '%+v'", c.expValid, x.Val.V.Valid)
+			}
+		})
+	}
+}
+
+// TestBoolWrapperMarshalXML ensures that the wrappers marshal into the values
+// expected by KDBX files, no matter whether they are reached through a pointer.
+//
+// encoding/xml only uses a Marshaler with a pointer receiver if the value it
+// marshals is addressable, so marshalling a struct which contains a wrapper by
+// value would fall back to the default marshalling of the struct fields.
+func TestBoolWrapperMarshalXML(t *testing.T) {
+	type wrap struct {
+		XMLName  xml.Name            `xml:"Wrap"`
+		Bool     BoolWrapper         `xml:"Bool"`
+		Nullable NullableBoolWrapper `xml:"Nullable"`
+		Attr     BoolWrapper         `xml:"Attr,attr"`
+	}
+
+	cases := []struct {
+		title    string
+		value    any
+		expected string
+	}{
+		{
+			title: "by value",
+			value: wrap{
+				Bool:     NewBoolWrapper(true),
+				Nullable: NewNullableBoolWrapper(false),
+			},
+			expected: `<Wrap Attr="False"><Bool>True</Bool><Nullable>False</Nullable></Wrap>`,
+		},
+		{
+			title: "by pointer",
+			value: &wrap{
+				Bool:     NewBoolWrapper(true),
+				Nullable: NewNullableBoolWrapper(false),
+			},
+			expected: `<Wrap Attr="False"><Bool>True</Bool><Nullable>False</Nullable></Wrap>`,
+		},
+		{
+			title:    "zero values",
+			value:    wrap{},
+			expected: `<Wrap Attr="False"><Bool>False</Bool><Nullable>null</Nullable></Wrap>`,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.title, func(t *testing.T) {
+			data, err := xml.Marshal(c.value)
+			if err != nil {
+				t.Fatalf("Failed to marshal: %s", err)
+			}
+
+			if string(data) != c.expected {
+				t.Errorf("Expected '%s', received '%s'", c.expected, data)
+			}
+		})
+	}
+}
