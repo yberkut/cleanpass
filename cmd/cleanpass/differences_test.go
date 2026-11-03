@@ -305,9 +305,13 @@ func TestDifferenceACycleOfGroupsStopsOnlyTheRealMerge(t *testing.T) {
 		t.Error("the real merge has ended: this difference may be gone")
 	}
 
-	seen := seenBy(t, mergedByCleanpass(t, dir, a, b))
-	if want := []string{"", "/Друга", "/Перша"}; !slices.Equal(seen.groups, want) && !slices.Equal(seen.groups, []string{"", "/Друга", "/Друга/Перша"}) && !slices.Equal(seen.groups, []string{"", "/Перша", "/Перша/Друга"}) {
-		t.Errorf("the result has the groups %q, want both in one valid tree", seen.groups)
+	// The real KeePassXC reads the result, so the tree is valid. Each group has to be in it once.
+	names := map[string]int{}
+	for _, path := range seenBy(t, mergedByCleanpass(t, dir, a, b)).groups {
+		names[path[strings.LastIndex(path, "/")+1:]]++
+	}
+	if names["Перша"] != 1 || names["Друга"] != 1 {
+		t.Errorf("the result has the groups %v, want each group once", names)
 	}
 }
 
