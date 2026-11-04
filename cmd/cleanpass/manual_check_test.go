@@ -255,8 +255,8 @@ func TestManualCheckLeavesNoFiles(t *testing.T) {
 	}
 }
 
-// In a real mintty the tool refuses. A pipe of a test is no such terminal, so here the tool goes on
-// and works, and the check has to say that this is no refusal.
+// In a mintty without a console the tool refuses. A pipe of a test is no such terminal, so here the
+// tool goes on and works, and the check has to say that this is no refusal.
 func TestManualCheckCallsAToolThatDoesNotRefuseAFailure(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS != "windows" {
@@ -266,7 +266,33 @@ func TestManualCheckCallsAToolThatDoesNotRefuseAFailure(t *testing.T) {
 	got := runManualCheck(t, []string{syntheticOnly, "TERM_PROGRAM=mintty"}, "cleanpass-synthetic-check\n\n", testkit.BinaryPath())
 
 	wantCode(t, got, 0)
-	wantInOutput(t, got.Stdout, "Відмова в mintty за 2 с: НІ")
+	wantInOutput(t, got.Stdout, "Відмова в Git Bash без консолі за 2 с: НІ", "Пароль не видно в Git Bash з консоллю: не перевірено")
+}
+
+// Git for Windows 2.55 gives programs a console in mintty, and there the tool rightly asks for the
+// password. The refusal needs the mintty of older versions, so the check makes it with MSYS. The
+// tool here refuses only when the check asked for no console and kept the MSYS of the person.
+func TestManualCheckAsksForTheRefusalWithoutAConsole(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS != "windows" {
+		t.Skip("mintty is a terminal of Git Bash on Windows")
+	}
+	tool := filepath.Join(t.TempDir(), "cleanpass")
+	refusesWithoutConsole := `#!/usr/bin/env bash
+if [[ "${MSYS:-}" == *winsymlinks:lnk* && "${MSYS:-}" == *disable_pcon* ]]; then
+  echo "Термінал без консолі. Запустіть через winpty." >&2
+  exit 3
+fi
+echo "Пароль для бази:" >&2
+`
+	if err := os.WriteFile(tool, []byte(refusesWithoutConsole), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got := runManualCheck(t, []string{syntheticOnly, "TERM_PROGRAM=mintty", "MSYS=winsymlinks:lnk"}, "\n\n", filepath.ToSlash(tool))
+
+	wantCode(t, got, 0)
+	wantInOutput(t, got.Stdout, "Відмова в Git Bash без консолі за 2 с: так")
 }
 
 func TestManualCheckNeedsNoMinttyOnOtherTerminals(t *testing.T) {
@@ -275,8 +301,8 @@ func TestManualCheckNeedsNoMinttyOnOtherTerminals(t *testing.T) {
 
 	wantCode(t, got, 0)
 	if runtime.GOOS == "windows" {
-		wantInOutput(t, got.Stdout, "Відмова в mintty за 2 с: не перевірено")
+		wantInOutput(t, got.Stdout, "Відмова в Git Bash без консолі за 2 с: не перевірено", "Пароль не видно в Git Bash з консоллю: не перевірено")
 	} else {
-		wantInOutput(t, got.Stdout, "Відмова в mintty за 2 с: не стосується цієї системи")
+		wantInOutput(t, got.Stdout, "Відмова в Git Bash без консолі за 2 с: не стосується цієї системи", "Пароль не видно в Git Bash з консоллю: не стосується цієї системи")
 	}
 }
