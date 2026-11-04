@@ -124,7 +124,27 @@ on_windows() {
 
 under_mintty() { on_windows && [[ "${TERM_PROGRAM:-}" == "mintty" ]]; }
 
-# interactive gives a program the terminal of the person. In mintty only winpty hides a password.
+# MINTTY_CONSOLE caches the answer of mintty_gives_console: yes, no, or empty before the question.
+MINTTY_CONSOLE=""
+
+# mintty_gives_console says this mintty gives programs of Windows a console: the pseudo console of
+# Windows. Git for Windows 2.55 does that by default. With MSYS=disable_pcon, and in Git Bash
+# versions without that support, a program of Windows gets a pipe. PowerShell is a program of
+# Windows on every Windows, so it sees stdin as cleanpass sees it.
+mintty_gives_console() {
+  if [[ -z "$MINTTY_CONSOLE" ]]; then
+    local redirected=""
+    redirected=$(powershell.exe -NoProfile -NonInteractive -Command '[Console]::IsInputRedirected' 2>/dev/null | tr -d '\r') || true
+    if [[ "$redirected" == False ]]; then MINTTY_CONSOLE=yes; else MINTTY_CONSOLE=no; fi
+  fi
+  [[ "$MINTTY_CONSOLE" == yes ]]
+}
+
+# without_console runs a program of Windows with a pipe for stdin, as old Git Bash versions gave.
+without_console() { MSYS="${MSYS:+$MSYS }disable_pcon" "$@"; }
+
+# interactive gives a program the terminal of the person. winpty hides a password in every mintty,
+# with a console or without, so the stages with real passwords do not depend on the console.
 interactive() {
   if under_mintty && command -v winpty >/dev/null 2>&1; then
     winpty "$@"
@@ -237,40 +257,64 @@ stage_start() {
   pause "Натисніть Enter, щоб почати."
 }
 
+# Git Bash has two kinds of mintty. Without a console a program of Windows reads a pipe and cannot
+# hide typing, so the tool must refuse. With the pseudo console of Windows the tool sees a console
+# and hides the password itself. Part 1 makes the first kind on any Git Bash, part 2 needs a person.
 stage_mintty() {
-  stage "Git Bash: відмова в mintty"
-  local name="Відмова в mintty за 2 с"
+  stage "Git Bash (mintty)"
+  local refused="Відмова в Git Bash без консолі за 2 с" hidden="Пароль не видно в Git Bash з консоллю"
   if ! on_windows; then
     say "Це не Windows, тому цей крок не стосується цієї системи."
-    record "$name" "не стосується цієї системи"
+    record "$refused" "не стосується цієї системи"
+    record "$hidden" "не стосується цієї системи"
     pause "Натисніть Enter, щоб іти далі."
     return 0
   fi
   if ! under_mintty; then
     warn "Цей термінал не mintty. Відкрийте вікно Git Bash і запустіть цей скрипт там."
-    record "$name" "$NOT_CHECKED"
+    record "$refused" "$NOT_CHECKED"
+    record "$hidden" "$NOT_CHECKED"
     pause "Натисніть Enter, щоб іти далі."
     return 0
   fi
+  say "Частина 1. Git Bash без консолі: так працюють старіші версії і будь-яка з MSYS=disable_pcon."
   say "Зараз запуститься: cleanpass compare <синтетична база>"
   say "Очікування: приблизно за 2 с тула відмовляється, називає winpty і не просить пароля."
   say "Нічого не вводьте. Якщо за 20 с нічого не станеться, скрипт зупинить тулу сам."
   say ""
   local took refusal="$WORK/refusal.txt"
   SECONDS=0
-  code_of timeout --foreground 20 "$TOOL" compare "$SYNTHETIC_BASE" 2>"$refusal"
+  code_of without_console timeout --foreground 20 "$TOOL" compare "$SYNTHETIC_BASE" 2>"$refusal"
   took=$SECONDS
   cat "$refusal"
   say ""
   say "Код виходу: $CODE. Час: $took с."
   if [[ "$CODE" == 3 ]] && grep -q winpty "$refusal" && ! grep -q "Пароль для" "$refusal"; then
     if [[ "$took" -le 5 ]]; then
-      record "$name" "$YES ($took с)"
+      record "$refused" "$YES ($took с)"
     else
-      record "$name" "$NO: відмова є, але $took с"
+      record "$refused" "$NO: відмова є, але $took с"
     fi
   else
-    record "$name" "$NO: код $CODE, $took с"
+    record "$refused" "$NO: код $CODE, $took с"
+  fi
+  say ""
+  if no_person_here "$hidden"; then
+    :
+  elif ! mintty_gives_console; then
+    say "Частина 2 не потрібна: цей Git Bash не дає програмам консолі."
+    record "$hidden" "не стосується: цей Git Bash не дає консолі"
+  else
+    say "Частина 2. Цей Git Bash дає програмам консоль Windows. Тут тула не відмовляється, а просить"
+    say "пароль і ховає його сама."
+    say "Синтетичний пароль цього кроку, він нічого не захищає: $SYNTHETIC_PASSWORD"
+    step "Коли тула запитає пароль, введіть його. Символи не повинні з'являтись."
+    pause "Натисніть Enter, щоб почати."
+    say ""
+    code_of "$TOOL" compare "$SYNTHETIC_BASE"
+    say ""
+    say "Код виходу: $CODE."
+    verdict "$hidden" "Символи пароля НЕ з'являлись на екрані?"
   fi
   pause "Натисніть Enter, щоб іти далі."
 }
@@ -494,6 +538,13 @@ stage_desktop() {
   step "Запис «Другий запис» перемістіть у кошик."
   step "Збережіть файл і закрийте базу."
   pause "Натисніть Enter, коли збережете."
+  # A file equal to the base was never saved: that is a step not taken, not a wrong answer.
+  if cmp -s "$SYNTHETIC_BASE" "$copy"; then
+    warn "Файл не змінився, тобто KeePassXC його не зберіг. Крок не перевірено."
+    record "$name" "$NOT_CHECKED"
+    pause "Натисніть Enter, щоб іти далі."
+    return 0
+  fi
   # The password here is the synthetic one, and it stays out of the report.
   code_of "$TOOL" compare "$SYNTHETIC_BASE" "$copy" < <(printf '%s\n%s\n' "$SYNTHETIC_PASSWORD" "$SYNTHETIC_PASSWORD") >"$report" 2>&1
   say ""
