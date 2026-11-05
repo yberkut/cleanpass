@@ -336,6 +336,37 @@ func TestAllBinsAreOneGroup(t *testing.T) {
 	wantLosses(t, audit(first, first, second), groupLost(homeID))
 }
 
+// One copy holds two groups named Home in work in its bin. The other copy holds work outside the
+// bin, with a third Home in it. Work stays alive, so a merge puts the two into the bin, and there
+// they join. Their place is the bin only: in the live Home they would come back to life.
+//
+// The result is that of the Merge Engine: the join keeps the smallest UUID and the fields of the
+// newest group, also its time of creation.
+func TestADeletedGroupOfALiveParentWentIntoTheBin(t *testing.T) {
+	ids := func(last byte) snapshot.UUID { return snapshot.UUID{15: last} }
+	created := func(g snapshot.Group, at time.Time) snapshot.Group {
+		g.Times.Creation = at
+		return g
+	}
+	under := func(parent snapshot.Group, children ...snapshot.Group) snapshot.Group {
+		parent.Groups = children
+		return parent
+	}
+	bin, work := named(group(ids(0xC1), hours(1), ""), "Recycle Bin"), named(group(ids(0xC2), hours(1), ""), "Work")
+	older := created(named(group(ids(0xC3), hours(1), ""), "Home"), hours(1))
+	newer := created(named(group(ids(0xC4), hours(2), ""), "Home"), hours(2))
+	live := created(named(group(ids(0xC5), hours(1), ""), "Home"), hours(1))
+	deleted, kept := withGroups(under(bin, under(work, older, newer))), withGroups(under(work, live), bin)
+	joined := newer
+	joined.UUID = older.UUID
+	result := withGroups(under(bin, joined), under(work, live))
+	for _, s := range []*snapshot.Snapshot{deleted, kept, result} {
+		s.Meta.RecycleBin = bin.UUID
+	}
+
+	wantLosses(t, audit(result, deleted, kept))
+}
+
 // The bin joins no plain group with its name: what lies in that group is alive.
 func TestAPlainGroupDoesNotJoinTheBin(t *testing.T) {
 	bin := withGroups(named(group(workID, hours(1), ""), "Bin"))
