@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"runtime/debug"
 	"strings"
 
 	"github.com/yberkut/cleanpass/internal/challenge"
@@ -48,8 +49,12 @@ func Run(args []string, env Env) int {
 		fmt.Fprint(env.Stderr, text.Usage)
 		return exitError
 	}
-	if name := args[0]; name == "-h" || name == "--help" || name == "help" {
+	switch args[0] {
+	case "-h", "--help", "help":
 		fmt.Fprint(env.Stdout, text.Usage)
+		return exitOK
+	case "--version":
+		fmt.Fprintln(env.Stdout, versionLine(debug.ReadBuildInfo()))
 		return exitOK
 	}
 	run, ok := commands[args[0]]

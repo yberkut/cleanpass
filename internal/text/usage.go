@@ -2,6 +2,9 @@
 // writes words for a person: they call this one.
 package text
 
+// VersionUnknown is what --version says when go build wrote no version into the file.
+const VersionUnknown = "Версія тули невідома: файл зібрано без даних git."
+
 // Usage explains the commands.
 const Usage = `cleanpass — безпечна робота з копіями бази KeePassXC.
 
@@ -28,6 +31,7 @@ const Usage = `cleanpass — безпечна робота з копіями б�
 Інші опції:
   --allow-unrelated            Для merge: зливати навіть копії, схожі на різні бази.
   -h, --help                   Показати цю довідку.
+  --version                    Показати версію тули, щоб порівняти її з релізом на GitHub.
 
 Пароль:
   Майстер-пароль не передається через аргументи чи змінні середовища.
