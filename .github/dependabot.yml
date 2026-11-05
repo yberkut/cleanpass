@@ -1,0 +1,23 @@
+# Dependabot opens one pull request a week for the modules of the tool and one for the pinned
+# actions. CI runs on the push of its branch, as on any other branch.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      go-modules:
+        patterns: ["*"]
+    ignore:
+      # go.mod replaces it with the copy in third_party, so its version in go.mod has no
+      # effect. The copy is updated by hand: see third_party/gokeepasslib/PATCHES.md.
+      - dependency-name: github.com/tobischo/gokeepasslib/v3
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

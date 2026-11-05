@@ -314,8 +314,8 @@ func unifyLineBreaks(value reflect.Value) {
 		if value.Type() == timeType {
 			return
 		}
-		for i := range value.NumField() {
-			unifyLineBreaks(value.Field(i))
+		for _, field := range value.Fields() {
+			unifyLineBreaks(field)
 		}
 	case reflect.Slice:
 		for i := range value.Len() {

@@ -112,6 +112,17 @@ func TestAGroupOnTheSamePathLivesOnInTheGroupThere(t *testing.T) {
 	wantLosses(t, audit(withGroups(group(homeID, hours(1), "")), input))
 }
 
+// Between two versions with the same time either will do, and so does the path of either name.
+func TestEitherNameOfAGroupWithTheSameTimeGivesItAPath(t *testing.T) {
+	home := named(group(homeID, hours(1), ""), "Home")
+	asHome := withGroups(named(group(workID, hours(2), ""), "Home"), home)
+	asWork := withGroups(named(group(workID, hours(2), ""), "Work"), home)
+	asOffice := withGroups(named(group(workID, hours(2), ""), "Office"), home)
+
+	wantLosses(t, audit(withGroups(home), asHome, asWork))
+	wantLosses(t, audit(withGroups(home), asWork, asOffice), groupLost(workID))
+}
+
 func TestAGroupGoneFromItsPathIsALoss(t *testing.T) {
 	input := withGroups(group(homeID, hours(1), ""))
 
@@ -413,11 +424,10 @@ func TestEveryPartOfAGroupIsClassified(t *testing.T) {
 		proven[c.touches] = true
 	}
 	groupType := reflect.TypeFor[snapshot.Group]()
-	for i := range groupType.NumField() {
-		field := groupType.Field(i)
+	for field := range groupType.Fields() {
 		if field.Type == reflect.TypeFor[snapshot.Times]() {
-			for j := range field.Type.NumField() {
-				if name := field.Name + "." + field.Type.Field(j).Name; !proven[name] {
+			for inner := range field.Type.Fields() {
+				if name := field.Name + "." + inner.Name; !proven[name] {
 					t.Errorf("no test says whether the audit covers %s", name)
 				}
 			}

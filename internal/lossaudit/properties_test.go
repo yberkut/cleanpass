@@ -455,6 +455,26 @@ func TestPropertyAnEntryMergedWithoutADecisionIsALoss(t *testing.T) {
 	})
 }
 
+// newestNames gives the names of the versions of a group with its newest time in the copies.
+func newestNames(copies []*snapshot.Snapshot, id snapshot.UUID) []string {
+	var newest time.Time
+	var names []string
+	for _, c := range copies {
+		c.Root.Walk(func(g *snapshot.Group) {
+			if g.UUID != id {
+				return
+			}
+			switch modified := g.Times.LastModification; {
+			case modified.After(newest):
+				newest, names = modified, []string{g.Name}
+			case modified.Equal(newest):
+				names = append(names, g.Name)
+			}
+		})
+	}
+	return names
+}
+
 // TestPropertyAGroupJoinedOffItsPathIsALoss breaks the result of the engine as a bug would: it
 // takes a group into another group with another name, with all it holds. No path and no decision
 // allows that, so the audit sees a loss.
@@ -488,10 +508,15 @@ func TestPropertyAGroupJoinedOffItsPathIsALoss(t *testing.T) {
 		target := &into[rapid.IntRange(0, len(into)-1).Draw(t, "target")]
 		target.Entries = append(target.Entries, taken.Entries...)
 		target.Groups = append(target.Groups, taken.Groups...)
+		// Each version of the group with its newest time will do, so each of their names gives it
+		// a path, not only the name the engine took.
+		names := append(newestNames(copies, gone), taken.Name)
 		sameName := false
-		merged.Root.Walk(func(g *snapshot.Group) { sameName = sameName || (g.UUID != merged.Root.UUID && g.Name == taken.Name) })
+		merged.Root.Walk(func(g *snapshot.Group) {
+			sameName = sameName || (g.UUID != merged.Root.UUID && slices.Contains(names, g.Name))
+		})
 		if sameName {
-			t.Skip("another group has the name, so it can stand on the path")
+			t.Skip("another group has one of the names, so it can stand on the path")
 		}
 		joined++
 

@@ -160,11 +160,10 @@ func TestEveryPartOfAVersionIsClassified(t *testing.T) {
 		proven[c.touches] = true
 	}
 	version := reflect.TypeFor[snapshot.EntryVersion]()
-	for i := range version.NumField() {
-		field := version.Field(i)
+	for field := range version.Fields() {
 		if field.Type.Kind() == reflect.Struct {
-			for j := range field.Type.NumField() {
-				if name := field.Name + "." + field.Type.Field(j).Name; !proven[name] {
+			for inner := range field.Type.Fields() {
+				if name := field.Name + "." + inner.Name; !proven[name] {
 					t.Errorf("no test says whether the fingerprint covers %s", name)
 				}
 			}

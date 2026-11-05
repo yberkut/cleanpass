@@ -210,13 +210,15 @@ func writeTemp(target string, encode func(io.Writer) error, faults *faults, guar
 	if err != nil {
 		return "", err
 	}
+	// After a failed write or sync, that error goes back. The file is broken anyway, so the error
+	// of its close adds nothing.
 	if err := encode(&partialWriteFault{file: file, faults: faults}); err != nil {
-		guard.closeFile()
+		_ = guard.closeFile()
 		return file.Name(), err
 	}
 	faults.hit(PointBeforeSync)
 	if err := file.Sync(); err != nil {
-		guard.closeFile()
+		_ = guard.closeFile()
 		return file.Name(), err
 	}
 	return file.Name(), guard.closeFile()

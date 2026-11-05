@@ -1,0 +1,28 @@
+# golangci-lint v2. The lint job of .github/workflows/ci.yml runs it once for each target OS,
+# because each OS has files of its own. The copy of the library in third_party has its own
+# go.mod, so ./... does not reach it.
+version: "2"
+
+linters:
+  # errcheck, govet, ineffassign, staticcheck and unused.
+  default: standard
+  exclusions:
+    presets:
+      # errcheck leaves out Close, Flush, os.Remove, the print functions and os.Setenv. The code
+      # ignores their errors on purpose: in cleanup after another error, in files it only reads,
+      # and in text for the terminal. A Close that publishes data checks its error by hand.
+      - std-error-handling
+    rules:
+      # QF1001 suggests De Morgan's law. A condition such as !(a || b) can read better as it is.
+      - linters: [staticcheck]
+        text: "QF1001"
+
+issues:
+  # Show every issue. By default golangci-lint shows only 3 with the same text.
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
