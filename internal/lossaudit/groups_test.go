@@ -123,6 +123,47 @@ func TestEitherNameOfAGroupWithTheSameTimeGivesItAPath(t *testing.T) {
 	wantLosses(t, audit(withGroups(home), asWork, asOffice), groupLost(workID))
 }
 
+// One copy moved keys into work, and the other moved work into keys. A merge puts one of them
+// under the root to break the cycle, and there it can join a group with its name. So work has two
+// places, and in each of them a group with its name. The groups the copies hold under work and
+// that keep their UUID stand under the group work went into, because the result is a tree.
+//
+// The results are those of the Merge Engine, which keeps the smallest UUID of a join.
+func TestAGroupOfACycleWentIntoTheGroupItsChildrenStandIn(t *testing.T) {
+	ids := func(last byte) snapshot.UUID { return snapshot.UUID{15: last} }
+	top, newWork := named(group(ids(0xB1), hours(1), ""), "Work"), named(group(ids(0xB2), hours(1), ""), "Work")
+	work, keys := named(group(ids(0xB3), hours(1), ""), "Work"), named(group(ids(0xB4), hours(1), ""), "Keys")
+	newKeys := named(group(ids(0xB5), hours(1), ""), "Keys")
+	under := func(parent snapshot.Group, children ...snapshot.Group) snapshot.Group {
+		parent.Groups = children
+		return parent
+	}
+	moved := func(g snapshot.Group, at time.Time) snapshot.Group {
+		g.Times.LocationChanged = at
+		return g
+	}
+	// copies gives the two copies. The older move gives way.
+	copies := func(keysMoved, workMoved time.Time) []*snapshot.Snapshot {
+		return []*snapshot.Snapshot{
+			withGroups(top, under(work, newKeys, moved(keys, keysMoved))),
+			withGroups(top, under(keys, moved(work, workMoved), newWork)),
+		}
+	}
+
+	t.Run("work went under the root", func(t *testing.T) {
+		// work joined top there, and newKeys joined keys.
+		result := withGroups(under(top, under(keys, newWork)))
+
+		wantLosses(t, audit(result, copies(hours(3), hours(2))...))
+	})
+	t.Run("keys went under the root", func(t *testing.T) {
+		// work joined newWork under keys.
+		result := withGroups(top, under(keys, under(newWork, newKeys)))
+
+		wantLosses(t, audit(result, copies(hours(2), hours(3))...))
+	})
+}
+
 func TestAGroupGoneFromItsPathIsALoss(t *testing.T) {
 	input := withGroups(group(homeID, hours(1), ""))
 
