@@ -12,8 +12,10 @@ on:
 permissions:
   contents: read
 
+# In a run that Release calls, github.workflow is "Release". So a dry run of Release on a
+# branch does not cancel the CI of the push of that branch, nor the other way round.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
