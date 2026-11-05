@@ -225,7 +225,7 @@ gremlins unleash --workers 8 --timeout-coefficient 8 ./internal/lossaudit
 
 ### Системи і CI
 
-- Перший запуск CI йшов до цього тікета. Тести цього тікета, кроки `Merge scenarios` і `Measure speed` і новий вміст `dist` на runner-ах ще не йшли. `release.yml` не запускався ніколи.
+- Перший запуск CI йшов до цього тікета. Тести цього тікета, кроки `Merge scenarios` і `Measure speed` і новий вміст `dist` на runner-ах ще не йшли. `release.yml` не запускався ніколи. Тепер він стартує після злиття в `main` (`docs/adr/0001-release-on-each-merge.md`). Правила версій `cliff.toml` і запис версії у файли перевірено лише на копії репозиторію на ПК, з `git-cliff` 2.14.2 і тестовими тегами.
 - macOS перевірено лише в CI на `macos-15`, не на `macos-26` і не на ПК людини: на `macos-26` GitHub тричі не дав runner-а.
 - На Linux і macOS у CI пройшли всі тести, зокрема Judge, запуск надрукованої команди через `sh` і переривання під час запису. Приховане введення пароля на Linux і macOS не має тесту зовсім.
 - Файли для Linux ARM і macOS Intel збираються, але не запускались ніде. Файли для Linux x86-64, Windows і macOS Apple Silicon CI запустив.
