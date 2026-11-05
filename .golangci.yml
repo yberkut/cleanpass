@@ -1,0 +1,13 @@
+# golangci-lint v2. The lint job of .github/workflows/ci.yml runs it once for each target OS,
+# because each OS has files of its own. The copy of the library in third_party has its own
+# go.mod, so ./... does not reach it.
+version: "2"
+
+linters:
+  # errcheck, govet, ineffassign, staticcheck and unused.
+  default: standard
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

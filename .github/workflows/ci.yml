@@ -141,6 +141,16 @@ jobs:
       - name: Test
         run: go test -count=1 -timeout 60m ./...
 
+      # The race detector needs cgo, so this step alone turns it on. The tool ships without cgo,
+      # and every other step keeps it off. Only the Linux runner has a C compiler, so the
+      # goroutines that run on Windows alone stay outside this check. The commands of
+      # cmd/cleanpass run as a built file, which the race detector does not watch.
+      - name: Race detector (Linux)
+        if: runner.os == 'Linux'
+        env:
+          CGO_ENABLED: "1"
+        run: go test -race -count=1 -timeout 60m ./internal/...
+
       # The library copy has its own go.mod, and the spec wants its full suite on each
       # update. A test in cmd/cleanpass runs it too, but this step gives it a line of its
       # own in the log.
@@ -187,6 +197,52 @@ jobs:
           printf '%s\n%s\n' "$password" "$password" | keepassxc-cli db-create -q -t 100 -p "$database"
           printf '%s\n' "$password" | "$tool" compare "$database" | tee "$RUNNER_TEMP/smoke.txt"
           grep -q "smoke.kdbx" "$RUNNER_TEMP/smoke.txt"
+
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache-dependency-path: go.sum
+
+      - name: go.mod and go.sum are tidy
+        run: go mod tidy -diff
+
+      # go fix holds the modernizers of this Go version. After an update of Go, run
+      # go fix ./... once for each GOOS below and commit the result.
+      - name: go fix has nothing to change
+        run: |
+          status=0
+          for goos in linux darwin windows; do
+            echo "::group::$goos"
+            GOOS="$goos" go fix -diff ./... || status=1
+            echo "::endgroup::"
+          done
+          exit "$status"
+
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.15.0
+          install-only: true
+
+      # .golangci.yml holds the linters and the formatters.
+      - name: Lint every target OS
+        run: |
+          status=0
+          for goos in linux darwin windows; do
+            echo "::group::$goos"
+            GOOS="$goos" golangci-lint run ./... || status=1
+            echo "::endgroup::"
+          done
+          exit "$status"
 
   govulncheck:
     runs-on: ubuntu-24.04

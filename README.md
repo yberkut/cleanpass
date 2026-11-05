@@ -116,6 +116,8 @@ go test -timeout 60m ./...
 
 Тести `cmd/cleanpass` можуть іти довше за типові для Go 10 хвилин, тому потрібна опція `-timeout`.
 
+CI також перевіряє код для кожної з трьох систем: `go mod tidy -diff`, `go fix -diff` і `golangci-lint` v2 з налаштуваннями з `.golangci.yml`. На Linux він ще запускає тести `internal` з `-race`. Для цього потрібен cgo, тому лише цей крок збирає з `CGO_ENABLED=1`.
+
 Результати приймальної перевірки і чесний перелік того, що лишилось не перевіреним, записані в `docs/acceptance.md`.
 
 Копія бібліотеки `third_party/gokeepasslib` має власний `go.mod`. Її тести запускаються окремо, з її директорії: `go test ./...`. Що в ній змінено, описує `third_party/gokeepasslib/PATCHES.md`.
