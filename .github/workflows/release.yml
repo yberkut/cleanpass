@@ -1,12 +1,30 @@
 name: Release
 
-# A tag such as v1.2.3 publishes a release, but only after all of CI passes for it.
+# Each merge of a pull request into main makes a release, when its commits ask for one: a
+# feat, a fix, a perf or a breaking change since the last tag. cliff.toml holds the rules,
+# and docs/adr/0001-release-on-each-merge.md says why. All of CI passes first.
+#
+# "Run workflow" does all of it but the publish: a dry run. The summary of the run shows the
+# version and the notes.
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+# One release at a time. A newer push waits, and then it releases all that is not released yet.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  # From the release of git-cliff on GitHub. To change the version, edit both lines: the
+  # API gives the SHA-256 of each file, for example
+  # gh api repos/orhun/git-cliff/releases/tags/v2.14.2 --jq '.assets[] | .name + " " + .digest'
+  GIT_CLIFF_VERSION: "2.14.2"
+  GIT_CLIFF_SHA256: 24f397c733add5390fdceee3a2088588ab0d5f944ce00d34cb7029b888cf2db4
 
 jobs:
   ci:
@@ -17,11 +35,32 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
+      # The tag and the release.
       contents: write
+      # The check that the commit came from a pull request.
+      pull-requests: read
     steps:
+      # git-cliff reads the commits and the tags since the last release, so all of the
+      # history comes.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
+
+      # Squash and rebase are off for this repository, so each merged pull request is a
+      # merge commit on main. A push straight to main is not one, and it is not released.
+      # The next merged pull request releases its commits.
+      - name: The commit came from a pull request
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          count="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
+            --jq "[.[] | select(.merge_commit_sha == \"$GITHUB_SHA\")] | length")"
+          if [ "$count" = "0" ]; then
+            echo "::error::$GITHUB_SHA came to main without a pull request, so no release is made from it."
+            exit 1
+          fi
 
       # No cache: a published file is built from the source and go.sum alone.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -30,15 +69,63 @@ jobs:
           check-latest: true
           cache: false
 
+      - name: Install git-cliff
+        run: |
+          file="git-cliff-$GIT_CLIFF_VERSION-x86_64-unknown-linux-gnu.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 --output "$RUNNER_TEMP/$file" \
+            "https://github.com/orhun/git-cliff/releases/download/v$GIT_CLIFF_VERSION/$file"
+          echo "$GIT_CLIFF_SHA256  $RUNNER_TEMP/$file" | sha256sum --check
+          tar --extract --gzip --file "$RUNNER_TEMP/$file" --directory "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/git-cliff-$GIT_CLIFF_VERSION" >> "$GITHUB_PATH"
+
+      # If the next version is a tag already, the commits since that tag ask for no release.
+      - name: Next version and notes
+        id: next
+        run: |
+          version="$(git cliff --bumped-version)"
+          if git rev-parse --quiet --verify "refs/tags/$version" > /dev/null; then
+            echo "No feat, fix, perf or breaking change since $version, so there is no release."
+            echo "No release: no feat, fix, perf or breaking change since $version." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git cliff --unreleased --tag "$version" --strip all --output "$RUNNER_TEMP/notes.md"
+          if [ ! -s "$RUNNER_TEMP/notes.md" ]; then
+            echo "::error::git-cliff gives $version but no notes for it."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          { echo "## $version"; echo; cat "$RUNNER_TEMP/notes.md"; } >> "$GITHUB_STEP_SUMMARY"
+
+      # go build writes the version of a tag on the commit into each file, so the tag is
+      # here for the build. It is removed again: gh release create makes the real one.
       - name: Build every target with SHA-256
-        run: go run ./tools/dist
+        if: steps.next.outputs.version != ''
+        env:
+          VERSION: ${{ steps.next.outputs.version }}
+        run: |
+          git tag "$VERSION"
+          go run ./tools/dist
+          git tag --delete "$VERSION"
+          built="$(go version -m dist/cleanpass-linux-amd64 | awk '$1 == "mod" { print $3 }')"
+          echo "The files say they are $built."
+          test "$built" = "$VERSION"
 
       - name: Publish the release
+        if: steps.next.outputs.version != '' && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.next.outputs.version }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* \
+          gh release create "$VERSION" dist/* \
             --repo "$GITHUB_REPOSITORY" \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes \
-            --verify-tag
+            --target "$GITHUB_SHA" \
+            --title "$VERSION" \
+            --notes-file "$RUNNER_TEMP/notes.md"
+
+      - name: Dry run
+        if: steps.next.outputs.version != '' && github.event_name != 'push'
+        env:
+          VERSION: ${{ steps.next.outputs.version }}
+        run: |
+          echo "A dry run publishes nothing. A merge into main would publish $VERSION with these files:"
+          ls -l dist

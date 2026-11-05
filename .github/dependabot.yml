@@ -1,11 +1,18 @@
 # Dependabot opens one pull request a week for the modules of the tool and one for the pinned
 # actions. CI runs on the push of its branch, as on any other branch.
+#
+# Its commits are Conventional Commits, as CI asks. A new module can fix a hole in the tool,
+# so "fix(deps):" makes a patch release. A new action changes only CI, so "ci(deps):"
+# makes no release.
 version: 2
 updates:
   - package-ecosystem: gomod
     directory: /
     schedule:
       interval: weekly
+    commit-message:
+      prefix: fix
+      include: scope
     groups:
       go-modules:
         patterns: ["*"]
@@ -18,6 +25,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    commit-message:
+      prefix: ci
+      include: scope
     groups:
       actions:
         patterns: ["*"]

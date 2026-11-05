@@ -1,11 +1,12 @@
 name: CI
 
-# Every push to any branch runs this, and the release workflow calls it before it
-# publishes anything. A pull request shows the result of the push of its branch, so a
-# pull_request trigger would only test the same commit twice.
+# Every push to a branch other than main runs this. On main the Release workflow runs it
+# before it publishes anything, so a merge does not run it twice. A pull request shows the
+# result of the push of its branch, so a pull_request trigger would only test the same
+# commit twice.
 on:
   push:
-    branches: ["**"]
+    branches: ["**", "!main"]
   workflow_call:
 
 permissions:
@@ -269,3 +270,25 @@ jobs:
             GOOS="$goos" govulncheck ./...
             echo "::endgroup::"
           done
+
+  # The Release workflow takes the version and the notes from the messages of the commits
+  # (see cliff.toml), so each commit of a branch is a Conventional Commit: "type: text" or
+  # "type(scope): text", with "!" before ":" for a breaking change. Merge commits are left out.
+  commits:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Each commit is a Conventional Commit
+        run: |
+          pattern='^[0-9a-f]+ (feat|fix|perf|refactor|test|docs|ci|chore|build|style|revert)(\([^)]+\))?!?: .+'
+          bad="$(git log --no-merges --format='%h %s' origin/main..HEAD | grep --extended-regexp --invert-match "$pattern" || true)"
+          if [ -n "$bad" ]; then
+            echo "::error::These commits are not Conventional Commits. Reword them, for example with git rebase."
+            echo "$bad"
+            exit 1
+          fi

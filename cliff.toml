@@ -1,0 +1,48 @@
+# git-cliff reads the Conventional Commits since the last tag. From them it takes the next
+# version and the notes of the release. The Release workflow runs it on each push to main:
+# see docs/adr/0001-release-on-each-merge.md. To see the next release on your PC:
+#
+#	git cliff --bumped-version
+#	git cliff --unreleased --strip all
+
+[changelog]
+# The notes of one release. The title of the release on GitHub holds the version, so the
+# notes have no title of their own.
+body = """
+{% for entry in commits | commit_groups(groups=commit_parsers_groups) %}
+### {{ entry.group | striptags | trim }}
+{% for commit in entry.commits %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}\
+{{ commit.message | upper_first }} ({{ commit.id | truncate(length=7, end="") }})\
+{% endfor %}
+{% endfor %}
+"""
+trim = true
+
+[git]
+conventional_commits = true
+# "Merge pull request #12 from ..." is not a Conventional Commit, so it is not in the notes.
+filter_unconventional = true
+# A breaking change is in the notes and bumps the version, whatever its type.
+protect_breaking_commits = true
+# Only these types make a release. A branch of only test, docs, refactor, ci, chore or build
+# commits makes none.
+commit_parsers = [
+	{ message = '^[a-z]+(\([^)]*\))?!:', group = "<!-- 0 -->Breaking changes" },
+	{ footer = '^BREAKING[ -]CHANGE', group = "<!-- 0 -->Breaking changes" },
+	{ message = '^feat', group = "<!-- 1 -->Features" },
+	{ message = '^fix', group = "<!-- 2 -->Bug fixes" },
+	{ message = '^perf', group = "<!-- 3 -->Performance" },
+	{ message = '.*', skip = true },
+]
+tag_pattern = '^v[0-9]+\.[0-9]+\.[0-9]+$'
+sort_commits = "oldest"
+
+# While the version is 0.x, a feature or a breaking change bumps the minor number and a fix
+# bumps the patch number. Version 1.0.0 is a choice of a person: a pull request sets
+# breaking_always_bump_major to true and has a breaking change, for example "feat!: ...".
+# From 1.0.0 on, a breaking change bumps the major number whatever this line says.
+[bump]
+initial_tag = "v0.1.0"
+features_always_bump_minor = true
+breaking_always_bump_major = false
