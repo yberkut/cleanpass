@@ -27,30 +27,54 @@ func goneByTheMemory(result *merge.Result) []snapshot.UUID {
 	return gone
 }
 
+// drawDecisionsThatDelete answers as drawDecisions does, but in half of the scenarios the human
+// deletes each entry a question about a deletion names. A random answer deletes one entry in
+// four, and only a deletion the human accepts reaches the memory, so without this few scenarios
+// test it.
+func drawDecisionsThatDelete(t *rapid.T, questions []merge.Question) []merge.Decision {
+	if !rapid.Bool().Draw(t, "delete every entry") {
+		return drawDecisions(t, questions)
+	}
+	var decisions []merge.Decision
+	var others []merge.Question
+	for _, q := range questions {
+		if _, isDeletion := q.Detail.(merge.Deletion); isDeletion {
+			decisions = append(decisions, merge.Decision{Question: q.ID, Choice: merge.AnswerDelete})
+		} else {
+			others = append(others, q)
+		}
+	}
+	return append(decisions, drawDecisions(t, others)...)
+}
+
 // TestPropertyNoLossWithTheMemory: a merge of the result with an old copy loses nothing, and
 // nothing stays out but what the human has decided. An entry goes through the memory only if the
 // human said so in the first merge, and only one with a record: the other ones lie in the bin.
+//
+// Each copy is the old copy in turn. One copy drawn at random often does not hold the entry the
+// human deleted, and then the memory has nothing to do.
 func TestPropertyNoLossWithTheMemory(t *testing.T) {
 	remembered := 0
 	rapid.Check(t, func(t *rapid.T) {
 		s := mergetest.Scenarios().Draw(t, "scenario")
 		in := merge.Input{Copies: s.Copies, Now: s.Now, Key: drawKey(t)}
-		in.Decisions = drawDecisions(t, runOn(t, in).Questions)
+		in.Decisions = drawDecisionsThatDelete(t, runOn(t, in).Questions)
 		first := runOn(t, in)
 		own := merge.Copy{Name: "result", Snapshot: first.Merged}
-		other := rapid.SampledFrom(s.Copies).Draw(t, "old copy")
-
-		again := runOn(t, merge.Input{Copies: []merge.Copy{own, other}, Now: s.Now, Key: in.Key})
-
-		losses := lossaudit.Audit(lossaudit.Input{Copies: []*snapshot.Snapshot{first.Merged, other.Snapshot}, Result: again.Merged})
-		if len(losses) != 0 {
-			t.Errorf("the audit found losses: %+v", losses)
-		}
 		chosen := allowedToGo(in.Decisions)
-		for _, id := range goneByTheMemory(again) {
-			remembered++
-			if !chosen[id] {
-				t.Errorf("entry %s went through the memory, and the human did not delete it", id)
+
+		for _, other := range s.Copies {
+			again := runOn(t, merge.Input{Copies: []merge.Copy{own, other}, Now: s.Now, Key: in.Key})
+
+			losses := lossaudit.Audit(lossaudit.Input{Copies: []*snapshot.Snapshot{first.Merged, other.Snapshot}, Result: again.Merged})
+			if len(losses) != 0 {
+				t.Errorf("with %s, the audit found losses: %+v", other.Name, losses)
+			}
+			for _, id := range goneByTheMemory(again) {
+				remembered++
+				if !chosen[id] {
+					t.Errorf("with %s, entry %s went through the memory, and the human did not delete it", other.Name, id)
+				}
 			}
 		}
 	})
@@ -113,7 +137,7 @@ func TestPropertyAnEditNobodySawAsksAfterAnAcceptedDeletion(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := mergetest.Scenarios().Draw(t, "scenario")
 		in := merge.Input{Copies: s.Copies, Now: s.Now, Key: drawKey(t)}
-		in.Decisions = drawDecisions(t, runOn(t, in).Questions)
+		in.Decisions = drawDecisionsThatDelete(t, runOn(t, in).Questions)
 		result := runOn(t, in).Merged
 		merged := allEntries(result)
 
