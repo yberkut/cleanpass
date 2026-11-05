@@ -74,6 +74,8 @@ type groupCheck struct {
 	children  map[snapshot.UUID][]*snapshot.Group
 	root      snapshot.UUID
 	resultBin snapshot.UUID
+	// inResultBin holds the bin of the result and the groups below it.
+	inResultBin map[snapshot.UUID]bool
 	// binUnit is the unit of all bins, if there is one. It lives on only as itself, never in a
 	// group with its name.
 	binUnit    snapshot.UUID
@@ -95,6 +97,7 @@ func newGroupCheck(a *auditor) *groupCheck {
 		result:       map[snapshot.UUID]*snapshot.Group{},
 		children:     map[snapshot.UUID][]*snapshot.Group{},
 		root:         a.in.Result.Root.UUID,
+		inResultBin:  map[snapshot.UUID]bool{},
 		keepers:      map[snapshot.UUID]snapshot.UUID{},
 		notKept:      map[snapshot.UUID]bool{},
 		inProgress:   map[snapshot.UUID]bool{},
@@ -131,8 +134,9 @@ func newGroupCheck(a *auditor) *groupCheck {
 		}
 	}
 	walk(&a.in.Result.Root)
-	if _, exists := c.result[a.in.Result.Meta.RecycleBin]; exists && !c.roots[a.in.Result.Meta.RecycleBin] {
-		c.resultBin = a.in.Result.Meta.RecycleBin
+	if bin, exists := c.result[a.in.Result.Meta.RecycleBin]; exists && !c.roots[bin.UUID] {
+		c.resultBin = bin.UUID
+		bin.Walk(func(g *snapshot.Group) { c.inResultBin[g.UUID] = true })
 	}
 	return c
 }
@@ -247,8 +251,10 @@ func (c *groupCheck) parentsOf(unit snapshot.UUID) []snapshot.UUID {
 }
 
 // placesOf gives the groups of the result a unit may stand in: where its parent lives on. A merge
-// also puts a group under the root to break a cycle of moves, and into the bin if every copy
-// holds it in a bin while its parent stays alive. The bin joins no plain group by its path,
+// also puts a group under the root to break a cycle of moves. A group that every copy holds in a
+// bin stands in the bin: under its parent if the parent lies there too, and else in the bin
+// itself. A place outside the bin is none for it, because there it would come back to life, and
+// a live group with its name there is another group. The bin joins no plain group by its path,
 // because what lies in that group is alive.
 func (c *groupCheck) placesOf(unit snapshot.UUID) []snapshot.UUID {
 	var places []snapshot.UUID
@@ -261,6 +267,7 @@ func (c *groupCheck) placesOf(unit snapshot.UUID) []snapshot.UUID {
 		places = append(places, c.root)
 	}
 	if !c.outside[unit] && !c.resultBin.IsZero() {
+		places = slices.DeleteFunc(places, func(place snapshot.UUID) bool { return !c.inResultBin[place] })
 		places = append(places, c.resultBin)
 	}
 	return places
