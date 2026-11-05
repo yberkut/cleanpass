@@ -11,6 +11,8 @@ import (
 	"github.com/yberkut/cleanpass/internal/snapshot"
 )
 
+func init() { addRule(phaseMetadata, mergeMetadata) }
+
 // mergeMetadata joins the settings of the database. A setting with a time of its own takes the
 // value with the newest time. All other settings come together from the copy with the newest
 // SettingsChanged. Custom icons and custom data join as sets. The value itself breaks a tie of

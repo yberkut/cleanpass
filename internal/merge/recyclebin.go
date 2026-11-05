@@ -8,6 +8,9 @@ import (
 	"github.com/yberkut/cleanpass/internal/snapshot"
 )
 
+// keepRecycledInTheBin runs after phaseGroups, because only then the merged tree is known.
+func init() { addRule(phaseMetadata, keepRecycledInTheBin) }
+
 // recycleBins is what the copies say about their recycle bins.
 type recycleBins struct {
 	// inBin holds for each copy the groups of that copy that lie in a bin, with the time each

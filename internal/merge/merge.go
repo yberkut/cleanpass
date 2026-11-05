@@ -7,12 +7,15 @@
 //
 // # Adding a rule
 //
-// A rule lives in its own file and gets one line in rules in this file, in its phase:
+// A rule lives in its own file and registers itself for its phase in init, so a new rule
+// does not change this file:
 //
-//	phaseDeletions: {mergeDeletions},
+//	func init() { addRule(phaseDeletions, mergeDeletions) }
 //
-// The rules of one phase run in the order of that list. So the order is in one place, and
-// no name of a file changes it.
+// The rules of one phase run in the order of the names of their files. So a rule must not
+// depend on another rule of its phase: TestPropertyTheOrderOfTheRulesInAPhaseChangesNothing
+// runs them in other orders and wants the same result. A rule that needs the work of another
+// rule goes in a later phase.
 //
 // A rule works on the merger: it reads the copies, changes the entries, asks with ask and
 // tells the report with tell. The kinds of question and of report event are free types
@@ -109,22 +112,10 @@ const (
 // rule is one step of a merge.
 type rule func(m *merger)
 
-// rules holds the rules of each phase in the order they run.
-var rules = [phaseCount][]rule{
-	phaseMemory:    {readRecords, readMemory},
-	phaseGroups:    {mergeGroups},
-	phaseVersions:  {mergeVersions},
-	phasePairs:     {askAboutPairs},
-	phaseDeletions: {mergeDeletions},
-	phaseMetadata: {
-		mergeMetadata,
-		// After phaseDeletions, because an entry that is gone by then needs no word.
-		tellRememberedPairs,
-		// After phaseGroups, because only then the merged tree is known.
-		keepRecycledInTheBin,
-	},
-	phaseRemember: {rememberDecisions},
-}
+// rules holds the rules of each phase. The order inside a phase has no effect.
+var rules [phaseCount][]rule
+
+func addRule(p phase, r rule) { rules[p] = append(rules[p], r) }
 
 // merger is the state of one Run. The rules share it.
 type merger struct {
@@ -172,8 +163,13 @@ func Run(in Input) (*Result, error) {
 	case in.Now.IsZero():
 		return nil, ErrNoTime
 	}
+	return run(in, rules)
+}
+
+// run merges the copies with these rules. Only a test gives other rules than Run does.
+func run(in Input, phases [phaseCount][]rule) (*Result, error) {
 	m := newMerger(in)
-	for _, phaseRules := range rules {
+	for _, phaseRules := range phases {
 		for _, r := range phaseRules {
 			r(m)
 		}
