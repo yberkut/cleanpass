@@ -200,20 +200,48 @@ func TestNoDependencyUsesCgoWhenCgoIsOn(t *testing.T) {
 	}
 }
 
+// fileForThisMachine gives the release file that this machine can run, or skips the test.
+func fileForThisMachine(t *testing.T) string {
+	t.Helper()
+	for _, target := range targets {
+		if target.goos == runtime.GOOS && target.goarch == runtime.GOARCH {
+			return filepath.Join(output, target.file)
+		}
+	}
+	t.Skipf("no release target for %s/%s", runtime.GOOS, runtime.GOARCH)
+	return ""
+}
+
 // The file for this machine, if there is one, starts. This is what "runs" can mean here:
 // the release files for other systems are checked by their format above.
 func TestFileForThisMachineRuns(t *testing.T) {
-	for _, target := range targets {
-		if target.goos != runtime.GOOS || target.goarch != runtime.GOARCH {
-			continue
-		}
-		path := filepath.Join(output, target.file)
-		if out, err := exec.Command(path, "--help").CombinedOutput(); err != nil {
-			t.Fatalf("%s --help: %v\n%s", target.file, err, out)
-		}
-		return
+	path := fileForThisMachine(t)
+	if out, err := exec.Command(path, "--help").CombinedOutput(); err != nil {
+		t.Fatalf("%s --help: %v\n%s", filepath.Base(path), err, out)
 	}
-	t.Skipf("no release target for %s/%s", runtime.GOOS, runtime.GOARCH)
+}
+
+// A person compares what the file says with the tag of the release. The file must say the tool
+// version that go build wrote into it, so a release from a tag says that tag. The tests of
+// cmd/cleanpass check a file without one.
+func TestFileForThisMachineSaysItsToolVersion(t *testing.T) {
+	path := fileForThisMachine(t)
+	info, err := buildinfo.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Main.Version == "" || info.Main.Version == "(devel)" {
+		t.Skipf("the build has no data of git, so the file has no version to say: %q", info.Main.Version)
+	}
+	var stdout, stderr bytes.Buffer
+	run := exec.Command(path, "--version")
+	run.Stdout, run.Stderr = &stdout, &stderr
+	if err := run.Run(); err != nil {
+		t.Fatalf("--version: %v\n%s", err, stderr.String())
+	}
+	if want := info.Main.Version + "\n"; stdout.String() != want {
+		t.Errorf("--version says %q, the build info has %q", stdout.String(), want)
+	}
 }
 
 func TestEveryTargetIsBuiltWithoutCgo(t *testing.T) {

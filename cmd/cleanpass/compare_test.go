@@ -419,9 +419,9 @@ func wantUkrainian(t *testing.T, stdout, stderr string, paths ...string) {
 		"cleanpass": true, "compare": true, "status": true, "file": true, "help": true, "key": true,
 		"KDBX": true, "KDF": true, "AES": true, "ChaCha": true, "Twofish": true, "Argon": true,
 		"Enter": true, "stdin": true, "KeePass": true, "KeePassXC": true, "verbose": true, "sync": true,
-		"merge": true, "output": true, "allow": true, "unrelated": true,
+		"merge": true, "output": true, "allow": true, "unrelated": true, "version": true, "GitHub": true,
 		"UUID": true, "URL": true, "Ctrl": true,
-		"Git": true, "Bash": true, "mintty": true, "winpty": true, "Windows": true, "Terminal": true,
+		"Git": true, "git": true, "Bash": true, "mintty": true, "winpty": true, "Windows": true, "Terminal": true,
 		"YubiKey": true, "yubikey": true, "ykman": true, "Yubico": true,
 		// The name of the variable of the test faults, which the warning of a test run gives.
 		"CLEANPASS": true, "TEST": true, "FAULT": true,

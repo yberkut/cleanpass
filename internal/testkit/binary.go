@@ -67,6 +67,8 @@ type Options struct {
 	Env []string
 	// Dir is the working directory of the process.
 	Dir string
+	// Binary is a file of the tool to run instead of the one RunMain built.
+	Binary string
 }
 
 // Run starts the built cleanpass with lines on stdin and waits for it.
@@ -78,12 +80,16 @@ func Run(t testing.TB, stdin string, args ...string) Result {
 // RunWith is Run with more control over the process.
 func RunWith(t testing.TB, opts Options, args ...string) Result {
 	t.Helper()
-	if builtBinary == "" {
+	binary := opts.Binary
+	if binary == "" {
+		binary = builtBinary
+	}
+	if binary == "" {
 		t.Fatal("testkit.RunMain did not run: add it to TestMain")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, builtBinary, args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Stdin = strings.NewReader(opts.Stdin)
 	cmd.Dir = opts.Dir
 	cmd.Env = append(os.Environ(), opts.Env...)
