@@ -10,6 +10,8 @@ import (
 	"github.com/yberkut/cleanpass/internal/snapshot"
 )
 
+func init() { addRule(phaseGroups, mergeGroups) }
+
 // groupState is a group during a merge.
 type groupState struct {
 	// data holds the fields of the group, without children.
