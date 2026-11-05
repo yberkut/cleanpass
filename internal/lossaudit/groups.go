@@ -195,8 +195,9 @@ func (c *groupCheck) findKeeper(unit snapshot.UUID) (snapshot.UUID, bool) {
 	if c.hasBins && unit == c.binUnit {
 		return snapshot.UUID{}, false
 	}
-	// Several groups can stand on one path, when one group made of them would lose something.
-	// The one that holds what the unit holds is where it went, if there is one.
+	// Several groups can stand on one path, when one group made of them would lose something, and
+	// a group on a cycle has two places. The one that holds what the unit holds is where it went,
+	// if there is one. Of several, the one with a child of the unit under it, see holdsAChildOf.
 	var candidates []*snapshot.Group
 	for _, place := range c.placesOf(unit) {
 		for _, child := range c.children[place] {
@@ -209,12 +210,27 @@ func (c *groupCheck) findKeeper(unit snapshot.UUID) (snapshot.UUID, bool) {
 	if len(candidates) == 0 {
 		return snapshot.UUID{}, false
 	}
-	for _, candidate := range candidates {
-		if slices.ContainsFunc(c.wanted(unit), func(want *snapshot.Group) bool { return holdsJoined(candidate, want) }) {
-			return candidate.UUID, true
+	holds := func(g *snapshot.Group) bool {
+		return slices.ContainsFunc(c.wanted(unit), func(want *snapshot.Group) bool { return holdsJoined(g, want) })
+	}
+	holdsWithAChild := func(g *snapshot.Group) bool { return holds(g) && c.holdsAChildOf(unit, g) }
+	for _, fits := range []func(*snapshot.Group) bool{holdsWithAChild, holds} {
+		if i := slices.IndexFunc(candidates, fits); i >= 0 {
+			return candidates[i].UUID, true
 		}
 	}
 	return candidates[0].UUID, true
+}
+
+// holdsAChildOf says that the group g of the result holds a group that keeps its UUID and stands
+// under the unit by its newest move, and under no other group with that time. Such a group stands
+// in the group the unit went into, under the root if it gave way in a cycle, or in the bin. The
+// root and the bin are no candidates, so the unit went into g.
+func (c *groupCheck) holdsAChildOf(unit snapshot.UUID, g *snapshot.Group) bool {
+	return slices.ContainsFunc(c.children[g.UUID], func(child *snapshot.Group) bool {
+		parents := c.parentsOf(c.unitOf(child.UUID))
+		return len(parents) > 0 && !slices.ContainsFunc(parents, func(p snapshot.UUID) bool { return p != unit })
+	})
 }
 
 // parentsOf gives the units the parent of a unit belongs to, as the spec says: by the newest move.
