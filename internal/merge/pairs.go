@@ -11,12 +11,6 @@ import (
 	"github.com/yberkut/cleanpass/internal/snapshot"
 )
 
-func init() {
-	addRule(phasePairs, askAboutPairs)
-	// After phaseDeletions, because an entry that is gone by then needs no word.
-	addRule(phaseMetadata, tellRememberedPairs)
-}
-
 // SimilarPair is the Detail of a question about two entries that look like one account under
 // two UUIDs. Answer 0 keeps both, which is also what happens without an answer, and answer 1
 // merges them.

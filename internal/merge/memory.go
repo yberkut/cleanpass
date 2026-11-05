@@ -10,11 +10,6 @@ import (
 	"github.com/yberkut/cleanpass/internal/snapshot"
 )
 
-func init() {
-	addRule(phaseMemory, readMemory)
-	addRule(phaseRemember, rememberDecisions)
-}
-
 // The memory of decisions lives in the custom data of the database, because KeePassXC keeps it
 // through a save, so the next merge with an old copy does not ask the same thing again.
 //

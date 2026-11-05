@@ -9,8 +9,6 @@ import (
 	"github.com/yberkut/cleanpass/internal/snapshot"
 )
 
-func init() { addRule(phaseVersions, mergeVersions) }
-
 func mergeVersions(m *merger) {
 	for i := range m.in.Copies {
 		c := &m.in.Copies[i]
