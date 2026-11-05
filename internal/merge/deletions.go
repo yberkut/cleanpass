@@ -10,10 +10,8 @@ import (
 	"github.com/yberkut/cleanpass/internal/snapshot"
 )
 
-func init() {
-	addRule(phaseMemory, func(m *merger) { m.records = m.joinRecords() })
-	addRule(phaseDeletions, mergeDeletions)
-}
+// readRecords joins what the copies say about deleted objects, for the rules after it.
+func readRecords(m *merger) { m.records = m.joinRecords() }
 
 // The answers to a question about a deletion.
 const (
