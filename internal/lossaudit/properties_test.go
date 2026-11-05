@@ -78,18 +78,18 @@ func TestPropertyNoLoss(t *testing.T) {
 	}
 }
 
-// A corruption is a bug a merge could have. Its apply says whether this result has anything
-// to corrupt.
+// A corruption is a bug a merge could have. Its apply says whether this result of the copies has
+// anything to corrupt.
 type corruption struct {
 	name  string
 	want  lossaudit.Kind
-	apply func(t *rapid.T, result *snapshot.Snapshot) bool
+	apply func(t *rapid.T, result *snapshot.Snapshot, copies []*snapshot.Snapshot) bool
 }
 
 // corruptions holds a damage to each thing the audit guards. Some need data the generator
 // does not make yet: see reachedToday.
 var corruptions = []corruption{
-	{"a history version gone", lossaudit.VersionLost, func(t *rapid.T, s *snapshot.Snapshot) bool {
+	{"a history version gone", lossaudit.VersionLost, func(t *rapid.T, s *snapshot.Snapshot, _ []*snapshot.Snapshot) bool {
 		e, ok := pickEntry(t, s, hasHistory)
 		if ok {
 			i := rapid.IntRange(0, len(e.History)-1).Draw(t, "version")
@@ -97,7 +97,7 @@ var corruptions = []corruption{
 		}
 		return ok
 	}},
-	{"a main version gone", lossaudit.VersionLost, func(t *rapid.T, s *snapshot.Snapshot) bool {
+	{"a main version gone", lossaudit.VersionLost, func(t *rapid.T, s *snapshot.Snapshot, _ []*snapshot.Snapshot) bool {
 		e, ok := pickEntry(t, s, hasHistory)
 		if ok {
 			last := len(e.History) - 1
@@ -105,7 +105,7 @@ var corruptions = []corruption{
 		}
 		return ok
 	}},
-	{"an entry gone", lossaudit.VersionLost, func(t *rapid.T, s *snapshot.Snapshot) bool {
+	{"an entry gone", lossaudit.VersionLost, func(t *rapid.T, s *snapshot.Snapshot, _ []*snapshot.Snapshot) bool {
 		e, ok := pickEntry(t, s, anyEntry)
 		if ok {
 			s.Root.Walk(func(g *snapshot.Group) {
@@ -114,7 +114,7 @@ var corruptions = []corruption{
 		}
 		return ok
 	}},
-	{"a field of a history version changed", lossaudit.VersionLost, func(t *rapid.T, s *snapshot.Snapshot) bool {
+	{"a field of a history version changed", lossaudit.VersionLost, func(t *rapid.T, s *snapshot.Snapshot, _ []*snapshot.Snapshot) bool {
 		e, ok := pickEntry(t, s, hasHistory)
 		if ok {
 			v := &e.History[rapid.IntRange(0, len(e.History)-1).Draw(t, "version")]
@@ -122,7 +122,7 @@ var corruptions = []corruption{
 		}
 		return ok
 	}},
-	{"a field of a history version gone", lossaudit.VersionLost, func(t *rapid.T, s *snapshot.Snapshot) bool {
+	{"a field of a history version gone", lossaudit.VersionLost, func(t *rapid.T, s *snapshot.Snapshot, _ []*snapshot.Snapshot) bool {
 		e, ok := pickEntry(t, s, hasHistory)
 		if ok {
 			v := &e.History[rapid.IntRange(0, len(e.History)-1).Draw(t, "version")]
@@ -131,7 +131,7 @@ var corruptions = []corruption{
 		}
 		return ok
 	}},
-	{"the time of a version changed", lossaudit.VersionLost, func(t *rapid.T, s *snapshot.Snapshot) bool {
+	{"the time of a version changed", lossaudit.VersionLost, func(t *rapid.T, s *snapshot.Snapshot, _ []*snapshot.Snapshot) bool {
 		e, ok := pickEntry(t, s, anyEntry)
 		if ok {
 			v := pickVersion(t, e)
@@ -139,7 +139,7 @@ var corruptions = []corruption{
 		}
 		return ok
 	}},
-	{"a reference to an attachment gone", lossaudit.VersionLost, func(t *rapid.T, s *snapshot.Snapshot) bool {
+	{"a reference to an attachment gone", lossaudit.VersionLost, func(t *rapid.T, s *snapshot.Snapshot, _ []*snapshot.Snapshot) bool {
 		e, ok := pickEntry(t, s, hasAttachment)
 		if ok {
 			versions := slices.DeleteFunc(allVersions(e), func(v *snapshot.EntryVersion) bool { return len(v.Attachments) == 0 })
@@ -148,7 +148,7 @@ var corruptions = []corruption{
 		}
 		return ok
 	}},
-	{"an item of custom data of a version gone", lossaudit.VersionLost, func(t *rapid.T, s *snapshot.Snapshot) bool {
+	{"an item of custom data of a version gone", lossaudit.VersionLost, func(t *rapid.T, s *snapshot.Snapshot, _ []*snapshot.Snapshot) bool {
 		e, ok := pickEntry(t, s, hasCustomData)
 		if ok {
 			v := pickVersionWithCustomData(t, e)
@@ -157,7 +157,7 @@ var corruptions = []corruption{
 		}
 		return ok
 	}},
-	{"an item of custom data of a version changed", lossaudit.VersionLost, func(t *rapid.T, s *snapshot.Snapshot) bool {
+	{"an item of custom data of a version changed", lossaudit.VersionLost, func(t *rapid.T, s *snapshot.Snapshot, _ []*snapshot.Snapshot) bool {
 		e, ok := pickEntry(t, s, hasCustomData)
 		if ok {
 			v := pickVersionWithCustomData(t, e)
@@ -167,14 +167,14 @@ var corruptions = []corruption{
 		}
 		return ok
 	}},
-	{"the bytes of an attachment gone", lossaudit.AttachmentLost, func(t *rapid.T, s *snapshot.Snapshot) bool {
+	{"the bytes of an attachment gone", lossaudit.AttachmentLost, func(t *rapid.T, s *snapshot.Snapshot, _ []*snapshot.Snapshot) bool {
 		id, ok := pickAttachment(t, s)
 		if ok {
 			delete(s.Attachments, id)
 		}
 		return ok
 	}},
-	{"the bytes of an attachment changed", lossaudit.AttachmentLost, func(t *rapid.T, s *snapshot.Snapshot) bool {
+	{"the bytes of an attachment changed", lossaudit.AttachmentLost, func(t *rapid.T, s *snapshot.Snapshot, _ []*snapshot.Snapshot) bool {
 		id, ok := pickAttachment(t, s)
 		if ok {
 			stored := s.Attachments[id]
@@ -183,7 +183,7 @@ var corruptions = []corruption{
 		}
 		return ok
 	}},
-	{"a deletion record gone", lossaudit.DeletionLost, func(t *rapid.T, s *snapshot.Snapshot) bool {
+	{"a deletion record gone", lossaudit.DeletionLost, func(t *rapid.T, s *snapshot.Snapshot, _ []*snapshot.Snapshot) bool {
 		if len(s.Deletions) == 0 {
 			return false
 		}
@@ -191,7 +191,7 @@ var corruptions = []corruption{
 		s.Deletions = slices.Delete(s.Deletions, i, i+1)
 		return true
 	}},
-	{"a deletion record older", lossaudit.DeletionLost, func(t *rapid.T, s *snapshot.Snapshot) bool {
+	{"a deletion record older", lossaudit.DeletionLost, func(t *rapid.T, s *snapshot.Snapshot, _ []*snapshot.Snapshot) bool {
 		if len(s.Deletions) == 0 {
 			return false
 		}
@@ -200,12 +200,14 @@ var corruptions = []corruption{
 		return true
 	}},
 	// A group with a name another group has can have gone into that one by the rule of one path.
-	{"a group gone", lossaudit.GroupLost, func(t *rapid.T, s *snapshot.Snapshot) bool {
+	// So can a group with such a name in a version with its newest time, since any of them will do.
+	{"a group gone", lossaudit.GroupLost, func(t *rapid.T, s *snapshot.Snapshot, copies []*snapshot.Snapshot) bool {
 		named := map[string]int{}
 		s.Root.Walk(func(g *snapshot.Group) { named[g.Name]++ })
 		var below []snapshot.UUID
 		s.Root.Walk(func(g *snapshot.Group) {
-			if g.UUID != s.Root.UUID && named[g.Name] == 1 {
+			otherName := func(name string) bool { return name != g.Name && named[name] > 0 }
+			if g.UUID != s.Root.UUID && named[g.Name] == 1 && !slices.ContainsFunc(newestNames(copies, g.UUID), otherName) {
 				below = append(below, g.UUID)
 			}
 		})
@@ -218,13 +220,13 @@ var corruptions = []corruption{
 		})
 		return true
 	}},
-	{"the notes of a group changed", lossaudit.GroupFieldsLost, func(t *rapid.T, s *snapshot.Snapshot) bool {
+	{"the notes of a group changed", lossaudit.GroupFieldsLost, func(t *rapid.T, s *snapshot.Snapshot, _ []*snapshot.Snapshot) bool {
 		var all []*snapshot.Group
 		s.Root.Walk(func(g *snapshot.Group) { all = append(all, g) })
 		rapid.SampledFrom(all).Draw(t, "group").Notes += "-changed"
 		return true
 	}},
-	{"a custom icon gone", lossaudit.CustomIconLost, func(t *rapid.T, s *snapshot.Snapshot) bool {
+	{"a custom icon gone", lossaudit.CustomIconLost, func(t *rapid.T, s *snapshot.Snapshot, _ []*snapshot.Snapshot) bool {
 		icons := s.Meta.CustomIcons
 		if len(icons) == 0 {
 			return false
@@ -233,7 +235,7 @@ var corruptions = []corruption{
 		s.Meta.CustomIcons = slices.Delete(icons, i, i+1)
 		return true
 	}},
-	{"custom data gone", lossaudit.CustomDataLost, func(t *rapid.T, s *snapshot.Snapshot) bool {
+	{"custom data gone", lossaudit.CustomDataLost, func(t *rapid.T, s *snapshot.Snapshot, _ []*snapshot.Snapshot) bool {
 		// What the generator sets. What the merge itself adds comes from no copy, so it can get lost
 		// without a loss of data, and TestPropertyNoLossWithTheMemory of the engine covers it.
 		var keys []string
@@ -249,7 +251,7 @@ var corruptions = []corruption{
 		s.Meta.CustomData = slices.DeleteFunc(s.Meta.CustomData, func(item snapshot.CustomDataItem) bool { return item.Key == gone })
 		return true
 	}},
-	{"the name of the database changed", lossaudit.SettingLost, func(t *rapid.T, s *snapshot.Snapshot) bool {
+	{"the name of the database changed", lossaudit.SettingLost, func(t *rapid.T, s *snapshot.Snapshot, _ []*snapshot.Snapshot) bool {
 		s.Meta.DatabaseName += "-changed"
 		return true
 	}},
@@ -347,7 +349,7 @@ func TestPropertyACorruptedResultIsCaught(t *testing.T) {
 		var allowed lossaudit.Allowed
 		for _, c := range corruptions {
 			corrupted := mergetest.Clone(merged)
-			if !c.apply(t, corrupted) {
+			if !c.apply(t, corrupted, copies) {
 				continue
 			}
 			applied[c.name]++
