@@ -92,7 +92,7 @@ func TestTheToolDependsOnNeitherRapidNorTheGenerator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("go list: %v\n%s", err, out)
 	}
-	for _, dep := range strings.Fields(string(out)) {
+	for dep := range strings.FieldsSeq(string(out)) {
 		if dep == "pgregory.net/rapid" || strings.HasSuffix(dep, "/merge/mergetest") {
 			t.Errorf("the tool depends on %s", dep)
 		}

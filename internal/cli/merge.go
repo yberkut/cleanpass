@@ -379,8 +379,7 @@ func describeMissingJudge(err error) string {
 }
 
 func reportWriteError(env Env, output string, err error) int {
-	var losses *lossesError
-	if errors.As(err, &losses) {
+	if losses, ok := errors.AsType[*lossesError](err); ok {
 		code := fail(env, text.MergeLossesFound)
 		_ = report.WriteLosses(env.Stderr, losses.losses)
 		return code

@@ -88,7 +88,7 @@ func NewKDBX3(t testing.TB, path, password string) DB {
 	t.Helper()
 	lib := gokeepasslib.NewDatabase(gokeepasslib.WithDatabaseKDBXVersion3())
 	lib.Credentials = gokeepasslib.NewPasswordCredentials(password)
-	attachment := lib.Content.Meta.Binaries.Add([]byte("synthetic kdbx3 attachment"))
+	attachment := lib.AddBinary([]byte("synthetic kdbx3 attachment"))
 
 	value := func(key, content string, protected bool) gokeepasslib.ValueData {
 		data := gokeepasslib.ValueData{Key: key, Value: gokeepasslib.V{Content: content}}

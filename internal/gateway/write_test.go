@@ -318,8 +318,8 @@ func TestEveryFieldOfTheLibraryHasAPlaceInASnapshot(t *testing.T) {
 	} {
 		kind := reflect.TypeOf(tc.value)
 		var names []string
-		for i := range kind.NumField() {
-			names = append(names, kind.Field(i).Name)
+		for field := range kind.Fields() {
+			names = append(names, field.Name)
 		}
 		if got := strings.Join(names, " "); got != tc.fields {
 			t.Errorf("%s has the fields\n%s\nwant\n%s", kind.Name(), got, tc.fields)

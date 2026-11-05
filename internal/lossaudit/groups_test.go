@@ -413,11 +413,10 @@ func TestEveryPartOfAGroupIsClassified(t *testing.T) {
 		proven[c.touches] = true
 	}
 	groupType := reflect.TypeFor[snapshot.Group]()
-	for i := range groupType.NumField() {
-		field := groupType.Field(i)
+	for field := range groupType.Fields() {
 		if field.Type == reflect.TypeFor[snapshot.Times]() {
-			for j := range field.Type.NumField() {
-				if name := field.Name + "." + field.Type.Field(j).Name; !proven[name] {
+			for inner := range field.Type.Fields() {
+				if name := field.Name + "." + inner.Name; !proven[name] {
 					t.Errorf("no test says whether the audit covers %s", name)
 				}
 			}

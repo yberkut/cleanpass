@@ -227,11 +227,9 @@ func smallSnapshot() *snapshot.Snapshot {
 			UUID: id(1),
 			Name: "Root",
 			Entries: []snapshot.Entry{{
-				UUID: id(0x10),
-				EntryVersion: snapshot.EntryVersion{
-					Times:  snapshot.Times{LastModification: moment},
-					Fields: []snapshot.Field{{Key: "Title", Value: "Запис"}, {Key: "Password", Value: "SECRET-MARKER-small", Protected: true}},
-				},
+				UUID:   id(0x10),
+				Times:  snapshot.Times{LastModification: moment},
+				Fields: []snapshot.Field{{Key: "Title", Value: "Запис"}, {Key: "Password", Value: "SECRET-MARKER-small", Protected: true}},
 			}},
 		},
 	}
