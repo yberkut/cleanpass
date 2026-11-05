@@ -12,4 +12,4 @@
 
 # rapid writes the case of a failed property here and replays it on the next run. A case worth
 # keeping becomes a named test instead, because a change of a generator makes the file invalid.
-testdata/rapid/
+**/testdata/rapid/
