@@ -112,6 +112,17 @@ func TestAGroupOnTheSamePathLivesOnInTheGroupThere(t *testing.T) {
 	wantLosses(t, audit(withGroups(group(homeID, hours(1), "")), input))
 }
 
+// Between two versions with the same time either will do, and so does the path of either name.
+func TestEitherNameOfAGroupWithTheSameTimeGivesItAPath(t *testing.T) {
+	home := named(group(homeID, hours(1), ""), "Home")
+	asHome := withGroups(named(group(workID, hours(2), ""), "Home"), home)
+	asWork := withGroups(named(group(workID, hours(2), ""), "Work"), home)
+	asOffice := withGroups(named(group(workID, hours(2), ""), "Office"), home)
+
+	wantLosses(t, audit(withGroups(home), asHome, asWork))
+	wantLosses(t, audit(withGroups(home), asWork, asOffice), groupLost(workID))
+}
+
 func TestAGroupGoneFromItsPathIsALoss(t *testing.T) {
 	input := withGroups(group(homeID, hours(1), ""))
 
