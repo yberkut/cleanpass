@@ -230,7 +230,13 @@ func consoleProbe(program string, args []string) int {
 	last := ""
 	for {
 		select {
-		case <-done:
+		case err := <-done:
+			// Wait gives an error for a non-zero exit code too. Only without a ProcessState did
+			// the probe not run to its end.
+			if cmd.ProcessState == nil {
+				fmt.Println("PROBE-FAILED", err)
+				return 1
+			}
 			fmt.Printf("PROBE-EXIT=%d\n", cmd.ProcessState.ExitCode())
 			fmt.Printf("PROBE-LAST-ECHO=%s\n", echo())
 			return 0

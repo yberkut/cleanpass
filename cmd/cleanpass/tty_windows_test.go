@@ -70,14 +70,15 @@ func startInConsole(t *testing.T, program string, args ...string) *console {
 		t.Fatalf("CreatePseudoConsole: 0x%x", result)
 	}
 
+	// The first call only asks for the size of the list, and it fails by design.
 	var listSize uintptr
-	initializeAttributes.Call(0, 1, 0, uintptr(unsafe.Pointer(&listSize)))
+	_, _, _ = initializeAttributes.Call(0, 1, 0, uintptr(unsafe.Pointer(&listSize)))
 	list := make([]byte, listSize)
 	ok, _, err := initializeAttributes.Call(uintptr(unsafe.Pointer(&list[0])), 1, 0, uintptr(unsafe.Pointer(&listSize)))
 	if ok == 0 {
 		t.Fatalf("InitializeProcThreadAttributeList: %v", err)
 	}
-	defer deleteAttributes.Call(uintptr(unsafe.Pointer(&list[0])))
+	defer func() { _, _, _ = deleteAttributes.Call(uintptr(unsafe.Pointer(&list[0]))) }()
 	ok, _, err = updateProcThreadAttrib.Call(uintptr(unsafe.Pointer(&list[0])), 0, attributePseudoConsole,
 		c.handle, unsafe.Sizeof(c.handle), 0, 0)
 	if ok == 0 {
@@ -105,9 +106,9 @@ func startInConsole(t *testing.T, program string, args ...string) *console {
 		t.Fatalf("CreateProcess: %v", err)
 	}
 	c.process = processInfo.Process
-	syscall.CloseHandle(processInfo.Thread)
-	syscall.CloseHandle(inputRead)
-	syscall.CloseHandle(outputWrite)
+	_ = syscall.CloseHandle(processInfo.Thread)
+	_ = syscall.CloseHandle(inputRead)
+	_ = syscall.CloseHandle(outputWrite)
 
 	go func() {
 		defer close(c.closed)
@@ -123,12 +124,12 @@ func startInConsole(t *testing.T, program string, args ...string) *console {
 		}
 	}()
 	t.Cleanup(func() {
-		syscall.TerminateProcess(c.process, 1)
-		closePseudoConsole.Call(c.handle)
+		_ = syscall.TerminateProcess(c.process, 1)
+		_, _, _ = closePseudoConsole.Call(c.handle)
 		<-c.closed
-		syscall.CloseHandle(outputRead)
-		syscall.CloseHandle(c.input)
-		syscall.CloseHandle(c.process)
+		_ = syscall.CloseHandle(outputRead)
+		_ = syscall.CloseHandle(c.input)
+		_ = syscall.CloseHandle(c.process)
 	})
 	return c
 }
