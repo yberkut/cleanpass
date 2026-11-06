@@ -23,9 +23,10 @@
 5. Зміни йдуть у `main` лише через pull request, злиттям через merge commit. Squash і rebase вимкнено, тож кожне злиття — merge commit, а коміти гілки лишаються в історії для `git-cliff`.
 6. Цю заборону тримає ruleset GitHub `main only through pull requests` для гілки за замовчуванням. Обійти його не може ніхто, навіть адміністратор:
    - зміни йдуть у `main` лише через pull request, схвалення не потрібне;
-   - force push і видалення `main` заборонено.
+   - force push і видалення `main` заборонено;
+   - pull request зливається лише тоді, коли пройшли всі 6 перевірок CI: `commits`, `lint`, `govulncheck` і `Test` на Ubuntu, macOS і Windows.
 
-   Зеленого CI перед злиттям ruleset поки не вимагає. Дві м'які речі лишились як друга лінія:
+   Дві м'які речі лишились як друга лінія:
    - hook `.githooks/pre-push` зупиняє push у `main` ще на ПК, де його ввімкнено (`git config core.hooksPath .githooks`), і каже, що робити;
    - `release.yml` не робить релізу з коміту, який не є merge commit якогось pull request.
 
@@ -41,3 +42,5 @@
 - CI на `main` іде один раз, усередині `Release`. Тригер `push` у `ci.yml` пропускає `main`.
 - Релізи йдуть по одному. Якщо злиття прийшло під час релізу, воно чекає і потім випускає все, що ще не випущено.
 - GitHub відхиляє push у `main` повз pull request. Такий push можливий, лише якщо хтось вимкне або змінить ruleset.
+- Ruleset знає перевірки CI за назвами job, наприклад `Test (ubuntu-24.04)`. Нова назва job у `ci.yml` чи новий runner потребують зміни в ruleset, інакше жоден pull request не зіллється.
+- CI іде лише на push гілки цього репозиторію. Pull request з fork не має перевірок, тому не зіллється без зміни CI.
