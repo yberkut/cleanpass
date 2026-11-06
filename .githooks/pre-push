@@ -1,13 +1,13 @@
 #!/bin/sh
 # Changes come to main only through a pull request: each merge into main makes a release
-# (see docs/adr/0001-release-on-each-merge.md). The free plan of GitHub has no rule for a
-# private repository that stops a push to main, so this hook stops it on this PC.
+# (see docs/adr/0001-release-on-each-merge.md). A ruleset on GitHub rejects a push to main.
+# This hook stops the push earlier, on this PC, and says what to do instead.
 # Turn it on once per clone:
 #
 #	git config core.hooksPath .githooks
 #
-# git push --no-verify skips it. The Release workflow still makes no release from a commit
-# that did not come from a pull request.
+# git push --no-verify skips the hook, but GitHub still rejects the push. The Release
+# workflow also makes no release from a commit that did not come from a pull request.
 
 while read -r local_ref local_sha remote_ref remote_sha; do
 	if [ "$remote_ref" = "refs/heads/main" ]; then
