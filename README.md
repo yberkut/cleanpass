@@ -162,10 +162,12 @@ git cliff --unreleased --strip all
 
 Кнопка «Run workflow» у `Release` робить усе, крім публікації.
 
-GitHub не забороняє push у `main` для приватного репозиторію на безкоштовному плані. Тому після клонування ввімкніть hook, який забороняє це на вашому ПК:
+GitHub відхиляє push у `main`: ruleset `main only through pull requests` пускає зміни лише через pull request. Pull request зливається, лише коли пройшли всі 6 перевірок CI. Ruleset також забороняє force push і видалення `main`. Обійти його не може ніхто, навіть адміністратор.
+
+Hook зупиняє такий push раніше, ще на вашому ПК, і каже, що робити. Увімкніть його після клонування:
 
 ```
 git config core.hooksPath .githooks
 ```
 
-Коміт, що потрапив у `main` без pull request, релізу не отримує: `Release` для нього червоний. Його випустить наступне злиття.
+`Release` теж перевіряє, що коміт прийшов із pull request. Якщо ні, `Release` червоний, і релізу немає.
